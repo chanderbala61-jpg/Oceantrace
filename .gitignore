@@ -216,3 +216,26 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# OceanTrace Project Ignores
+data/raw/
+data/processed/
+models/checkpoints/
+outputs/predictions/
+outputs/visualizations/
+outputs/metrics/
+.venv/
+*.pth
+*.pt
+*.ckpt
+.env
+
+
+data/
+models/checkpoints/
+outputs/
+scratch/
+__pycache__/
+*.pth
+*.pt
+*.ckpt
