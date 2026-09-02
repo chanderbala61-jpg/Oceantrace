@@ -220,22 +220,18 @@ __marimo__/
 # OceanTrace Project Ignores
 data/raw/
 data/processed/
-models/checkpoints/
 outputs/predictions/
 outputs/visualizations/
 outputs/metrics/
 .venv/
-*.pth
-*.pt
-*.ckpt
 .env
 
-
 data/
-models/checkpoints/
 outputs/
 scratch/
 __pycache__/
-*.pth
-*.pt
-*.ckpt
+
+# Allow checkpoints in git so Streamlit Cloud has the model directly
+!models/checkpoints/
+!models/checkpoints/*.pth
+!models/checkpoints/*.json
