@@ -1,11 +1,13 @@
 """
 🌊 OceanTrace - Streamlit Web Application
-AI-Powered Satellite Oil Spill Detection, Verification & Tracking System
+AI-Powered Satellite Oil Spill Detection, Verification & Look-alike Discrimination System
 """
 
 import os
 import sys
+import json
 import tempfile
+import urllib.request
 import cv2
 import numpy as np
 import streamlit as st
@@ -20,6 +22,33 @@ from src.preprocessing import apply_speckle_filter, normalize_image
 from src.model import UNet
 from src.verification import verify_oil_spill_detection
 from src.tracking import simulate_slick_drift, draw_drift_trajectory
+
+# ── Cloud deployment: auto-download model weights from GitHub Releases ──────
+GITHUB_RELEASE_BASE = (
+    "https://github.com/chanderbala61-jpg/Oceantrace/releases/download/v1.0.0"
+)
+MODEL_FILES = {
+    "best_unet_model_fast.pth": f"{GITHUB_RELEASE_BASE}/best_unet_model_fast.pth",
+    "best_unet_model.pth": f"{GITHUB_RELEASE_BASE}/best_unet_model.pth",
+}
+
+
+def ensure_model_downloaded():
+    """Download model checkpoints from GitHub Releases if not present locally."""
+    checkpoint_dir = os.path.join(ROOT_DIR, "models", "checkpoints")
+    os.makedirs(checkpoint_dir, exist_ok=True)
+    for filename, url in MODEL_FILES.items():
+        dest = os.path.join(checkpoint_dir, filename)
+        if not os.path.exists(dest):
+            try:
+                st.info(f"⬇️ Downloading model weights: {filename} …")
+                urllib.request.urlretrieve(url, dest)
+                st.success(f"✅ Downloaded {filename}")
+            except Exception as e:
+                st.warning(f"⚠️ Could not download {filename}: {e}")
+
+
+ensure_model_downloaded()
 
 
 # Streamlit Page Configuration
@@ -71,6 +100,11 @@ def load_trained_model(checkpoint_path: str):
         alt_path = os.path.join(os.path.dirname(checkpoint_path), 'best_unet_model_fast.pth')
         if os.path.exists(alt_path):
             checkpoint_path = alt_path
+        else:
+            # Last resort: try downloading on-demand
+            ensure_model_downloaded()
+            if os.path.exists(alt_path):
+                checkpoint_path = alt_path
 
     if os.path.exists(checkpoint_path):
         checkpoint = torch.load(checkpoint_path, map_location=device)
@@ -81,25 +115,111 @@ def load_trained_model(checkpoint_path: str):
             model = UNet(in_channels=3, out_channels=1).to(device)
         model.load_state_dict(checkpoint['model_state_dict'])
         model.eval()
-        return model, device, True, os.path.basename(checkpoint_path)
+        
+        # Load associated metrics if available
+        metrics = checkpoint.get('metrics', {})
+        val_dice = metrics.get('val_dice', None)
+        val_iou = metrics.get('val_iou', None)
+        
+        # Check train history json
+        hist_path = os.path.join(os.path.dirname(checkpoint_path), 'train_history_fast.json')
+        if os.path.exists(hist_path):
+            try:
+                with open(hist_path, 'r') as hf:
+                    hist = json.load(hf)
+                    if hist.get('val_dice'):
+                        val_dice = max(hist['val_dice'])
+                    if hist.get('val_iou'):
+                        val_iou = max(hist['val_iou'])
+            except Exception:
+                pass
+                
+        return model, device, True, os.path.basename(checkpoint_path), val_dice, val_iou
     else:
         model = UNet(in_channels=3, out_channels=1).to(device)
         model.eval()
-        return model, device, False, "None"
+        return model, device, False, "None", None, None
+
+
+def predict_sliding_window(
+    image_rgb: np.ndarray,
+    model: torch.nn.Module,
+    device: torch.device,
+    patch_size: int = 256,
+    stride: int = 192
+) -> np.ndarray:
+    """
+    Executes high-resolution sliding window tiled inference to prevent texture destruction
+    from whole-scene downsampling.
+    """
+    H, W = image_rgb.shape[:2]
+    
+    # Fast path for smaller images
+    if max(H, W) <= 512:
+        input_resized = cv2.resize(image_rgb, (patch_size, patch_size), interpolation=cv2.INTER_LINEAR)
+        input_tensor = torch.from_numpy(input_resized.transpose(2, 0, 1)).unsqueeze(0).float().to(device)
+        with torch.no_grad():
+            logits = model(input_tensor)
+            probs = torch.sigmoid(logits)[0, 0].cpu().numpy()
+        return cv2.resize(probs, (W, H), interpolation=cv2.INTER_LINEAR)
+
+    # Sliding window inference
+    prob_accumulator = np.zeros((H, W), dtype=np.float32)
+    weight_accumulator = np.zeros((H, W), dtype=np.float32)
+
+    # 2D Gaussian weight window for smooth tile blending
+    y_win = np.hanning(patch_size)
+    x_win = np.hanning(patch_size)
+    window_2d = np.outer(y_win, x_win) + 1e-3
+
+    y_steps = range(0, max(1, H - patch_size + 1), stride)
+    x_steps = range(0, max(1, W - patch_size + 1), stride)
+
+    # Ensure last edges are covered
+    y_coords = list(y_steps)
+    if y_coords[-1] + patch_size < H:
+        y_coords.append(H - patch_size)
+        
+    x_coords = list(x_steps)
+    if x_coords[-1] + patch_size < W:
+        x_coords.append(W - patch_size)
+
+    for y in y_coords:
+        for x in x_coords:
+            patch = image_rgb[y:y+patch_size, x:x+patch_size]
+            patch_tensor = torch.from_numpy(patch.transpose(2, 0, 1)).unsqueeze(0).float().to(device)
+            with torch.no_grad():
+                logits = model(patch_tensor)
+                patch_prob = torch.sigmoid(logits)[0, 0].cpu().numpy()
+
+            prob_accumulator[y:y+patch_size, x:x+patch_size] += patch_prob * window_2d
+            weight_accumulator[y:y+patch_size, x:x+patch_size] += window_2d
+
+    final_prob = prob_accumulator / np.maximum(weight_accumulator, 1e-3)
+    return final_prob
 
 
 # Header & Branding
 st.title("🌊 OceanTrace")
-st.caption("AI-Powered Satellite Oil Spill Detection, Verification & Tracking System")
+st.caption("AI-Powered Satellite Oil Spill Detection, Verification & Look-alike Discrimination System")
 st.markdown("---")
 
 # Sidebar Controls
-st.sidebar.header("⚙️ Model Controls")
+st.sidebar.header("⚙️ Model Controls & Benchmark Accuracy")
 checkpoint_path = os.path.join(ROOT_DIR, 'models', 'checkpoints', 'best_unet_model_fast.pth')
-model, device, is_model_loaded, ckpt_name = load_trained_model(checkpoint_path)
+model, device, is_model_loaded, ckpt_name, val_dice, val_iou = load_trained_model(checkpoint_path)
 
 if is_model_loaded:
-    st.sidebar.success(f"✅ Model Checkpoint Loaded (`{ckpt_name}`)")
+    st.sidebar.success(f"✅ Active Model: `{ckpt_name}`")
+    
+    # Display Benchmark Accuracy / Validation Metrics
+    st.sidebar.markdown("### 📈 Model Evaluation Metrics")
+    col_sb1, col_sb2 = st.sidebar.columns(2)
+    with col_sb1:
+        st.metric("Validation IoU", f"{val_iou:.1%}" if val_iou is not None else "N/A")
+    with col_sb2:
+        st.metric("Dice Score (F1)", f"{val_dice:.1%}" if val_dice is not None else "N/A")
+    st.sidebar.caption("Evaluated on independent validation dataset patches.")
 else:
     st.sidebar.warning("⚠️ Model Checkpoint Not Found. Using Initialized Model.")
 
@@ -108,10 +228,11 @@ st.sidebar.markdown(f"**Execution Device:** `{device.type.upper()}`")
 st.sidebar.subheader("Detection Parameters")
 threshold = st.sidebar.slider("Prediction Probability Threshold", min_value=0.1, max_value=0.9, value=0.5, step=0.05)
 filter_method = st.sidebar.selectbox("SAR Speckle Noise Reduction Filter", ["median", "lee", "none"])
+inference_mode = st.sidebar.radio("Inference Strategy", ["High-Res Sliding Window (Accurate)", "Whole Scene Fast Resize"], index=0)
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### ⚠️ Decision Support Tool")
-st.sidebar.info("OceanTrace is an AI decision-support prototype. Detection results require validation by maritime authorities.")
+st.sidebar.info("OceanTrace employs physics-based SAR look-alike discrimination (damping ratio & border gradient) to filter low-wind zones and biogenic slicks.")
 
 
 # Main Application Interface
@@ -127,8 +248,6 @@ if uploaded_file is None:
             selected_sample = st.selectbox("Select Sample Satellite Scene", sample_files)
             if st.button("Load Selected Sample Scene"):
                 sample_path = os.path.join(sample_dir, selected_sample)
-                with open(sample_path, "rb") as f:
-                    uploaded_bytes = f.read()
                 uploaded_file = sample_path
 
 
@@ -183,52 +302,68 @@ if uploaded_file is not None:
             run_predict = st.button("🚀 RUN DETECTION")
             
         if run_predict or 'pred_results' in st.session_state:
-            # Preprocessing & Forward Pass
-            filtered_img = apply_speckle_filter(image_rgb, method=filter_method, kernel_size=3)
-            norm_img = normalize_image(filtered_img, method='minmax')
-            
-            input_resized = cv2.resize(norm_img, (256, 256), interpolation=cv2.INTER_LINEAR)
-            input_tensor = torch.from_numpy(input_resized.transpose(2, 0, 1)).unsqueeze(0).float().to(device)
-            
-            with torch.no_grad():
-                logits = model(input_tensor)
-                probs_resized = torch.sigmoid(logits)[0, 0].cpu().numpy()
+            with st.spinner("Processing SAR Image & Running Neural Inference..."):
+                # Preprocessing
+                filtered_img = apply_speckle_filter(image_rgb, method=filter_method, kernel_size=3)
+                norm_img = normalize_image(filtered_img, method='minmax')
                 
-            prob_map = cv2.resize(probs_resized, (W, H), interpolation=cv2.INTER_LINEAR)
-            binary_mask = (prob_map >= threshold).astype(np.uint8)
-            
-            # Verification Analysis
-            verif_results = verify_oil_spill_detection(prob_map, binary_mask, threshold=threshold)
-            
-            st.session_state['pred_results'] = {
-                'image_rgb': image_rgb,
-                'image_bgr': image_bgr,
-                'prob_map': prob_map,
-                'binary_mask': binary_mask,
-                'verif': verif_results
-            }
+                # Inference execution
+                if "Sliding Window" in inference_mode:
+                    prob_map = predict_sliding_window(norm_img, model, device, patch_size=256, stride=192)
+                else:
+                    input_resized = cv2.resize(norm_img, (256, 256), interpolation=cv2.INTER_LINEAR)
+                    input_tensor = torch.from_numpy(input_resized.transpose(2, 0, 1)).unsqueeze(0).float().to(device)
+                    with torch.no_grad():
+                        logits = model(input_tensor)
+                        probs_resized = torch.sigmoid(logits)[0, 0].cpu().numpy()
+                    prob_map = cv2.resize(probs_resized, (W, H), interpolation=cv2.INTER_LINEAR)
+                    
+                binary_mask = (prob_map >= threshold).astype(np.uint8)
+                
+                # Verification & Look-alike Analysis
+                verif_results = verify_oil_spill_detection(
+                    prob_map,
+                    binary_mask,
+                    original_image=image_rgb,
+                    threshold=threshold
+                )
+                
+                st.session_state['pred_results'] = {
+                    'image_rgb': image_rgb,
+                    'image_bgr': image_bgr,
+                    'prob_map': prob_map,
+                    'binary_mask': binary_mask,
+                    'verif': verif_results
+                }
             
             st.markdown("---")
-            st.subheader("📊 RESULT SUMMARY")
+            st.subheader("📊 RESULT SUMMARY & ACCURACY / CONFIDENCE METRICS")
             
-            # Status Banner
-            if verif_results['spill_pixels'] > 0:
-                st.error(f"🛢️ **POTENTIAL OIL SPILL DETECTED** (Region Confidence: **{verif_results['confidence']}**)")
+            # Status Banner & Classification Badge
+            classification = verif_results.get('classification', 'CONFIRMED OIL SPILL')
+            if classification == "CONFIRMED OIL SPILL":
+                st.error(f"🚨 **{classification}** (Model Confidence: **{verif_results['confidence']}** | Risk: **{verif_results['risk_level']}**)")
+            elif classification == "SUSPECTED LOOK-ALIKE":
+                st.warning(f"⚠️ **{classification}** (Model Confidence: **{verif_results['confidence']}** | Risk: **{verif_results['risk_level']}**)")
+            elif classification == "POTENTIAL SPILL / INVESTIGATE":
+                st.info(f"🔎 **{classification}** (Model Confidence: **{verif_results['confidence']}**)")
             else:
-                st.success("✅ **NO OIL SPILL DETECTED** (Clean Marine Region)")
+                st.success("✅ **CLEAN MARINE REGION** (No Oil Spill Detected)")
                 
-            # Key Metrics Cards
-            m1, m2, m3, m4 = st.columns(4)
+            # Key Metrics Cards including Detection Certainty & Model Accuracy
+            m1, m2, m3, m4, m5 = st.columns(5)
             with m1:
-                st.metric("Prototype Confidence", verif_results['confidence'])
+                st.metric("Classification", verif_results.get('classification', 'N/A'))
             with m2:
-                st.metric("Risk Level", verif_results['risk_level'])
+                st.metric("Mean Detection Certainty", f"{verif_results['mean_prob']:.1%}")
             with m3:
-                st.metric("Detected Spill Pixels", f"{verif_results['spill_pixels']:,}")
+                st.metric("Peak Probability", f"{verif_results['max_prob']:.1%}")
             with m4:
-                st.metric("Region Max Probability", f"{verif_results['max_prob']:.2%}")
+                st.metric("Damping Contrast", f"{verif_results.get('damping_ratio', 1.0):.2f}x")
+            with m5:
+                st.metric("Detected Pixels", f"{verif_results['spill_pixels']:,}")
                 
-            st.info(f"**Explanation:** {verif_results['explanation']}")
+            st.info(f"**Detailed SAR Decision Explanation:** {verif_results['explanation']}")
             
             # Image & Prediction Display Tabs
             tab1, tab2, tab3 = st.columns([1, 1, 1])
@@ -256,7 +391,7 @@ if uploaded_file is not None:
             # Drift Tracking Simulation Sub-Section
             st.subheader("🛥️ Prototype Drift & Trajectory Tracking (Simulation)")
             
-            if verif_results['spill_pixels'] > 0:
+            if verif_results['spill_pixels'] > 0 and not verif_results.get('is_lookalike', False):
                 t1, t2 = st.columns([1, 2])
                 with t1:
                     wind_spd = st.slider("Wind Speed (Knots)", 0.0, 30.0, 12.0)
@@ -276,5 +411,7 @@ if uploaded_file is not None:
                 with t2:
                     drift_vis_rgb = draw_drift_trajectory(image_rgb, binary_mask, drift_info)
                     st.image(drift_vis_rgb, caption="Prototype Drift Trajectory Vector Simulation", use_container_width=True)
+            elif verif_results.get('is_lookalike', False):
+                st.warning("Drift simulation bypassed: The detected anomaly is classified as a probable Look-alike (low-wind/biogenic film).")
             else:
                 st.info("Drift tracking simulation is inactive because no oil slick region was detected.")
