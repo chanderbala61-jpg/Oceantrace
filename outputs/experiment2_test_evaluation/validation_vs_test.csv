@@ -1,0 +1,5 @@
+Metric,VALIDATION (Chunk 42 Full),TEST (Locked Set),Delta (Test - Val)
+IoU (Jaccard),0.443058,0.716094,0.273036
+Dice (F1),0.614054,0.834563,0.220508
+Recall,0.661611,0.80189,0.140279
+Precision,0.572876,0.870011,0.297135

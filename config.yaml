@@ -1,0 +1,75 @@
+# ==============================================================================
+# OCEANTRACE CONFIGURATION SYSTEM
+# ==============================================================================
+# All paths are relative to repository root or configurable via environment.
+# Zero hardcoded secrets, API tokens, or machine-specific developer paths.
+
+system:
+  project_name: "OceanTrace"
+  problem_statement_id: "26143"
+  version: "1.0.0-predeploy"
+  environment: "production_ready"
+  device: "auto"  # 'auto', 'cuda', or 'cpu'
+
+paths:
+  # Checkpoints
+  checkpoint_path: "outputs/checkpoints/best.pth"
+  expected_checkpoint_sha256: "cd648dafe044062a69760e71051f06830f62f7857bec42e5ea162400a20648d6"
+  
+  # Dataset roots
+  images_dir: "extracted_dataset/images"
+  masks_dir: "extracted_dataset/masks"
+  test_split_path: "data/splits/experiment2_test.csv"
+  
+  # AIS Datasets
+  ais_dataset_1_path: "outputs/investigations/00955_ais_traffic.csv"
+  ais_dataset_2_path: "see thsis/Ocean Trace 2/data/synthetic_ais_demo.csv"
+  
+  # Outputs
+  investigations_output_dir: "outputs/investigations"
+  audit_output_dir: "outputs/pre_deployment_audit"
+  ais_false_detection_dir: "outputs/ais_false_detection_link"
+
+model:
+  architecture: "SegFormer-B0"
+  encoder_name: "mit_b0"
+  in_channels: 2
+  classes: 1
+  inference_threshold: 0.5  # Locked test evaluation threshold
+  patch_size: 256
+  normalization:
+    vh_min_db: -50.0
+    vh_max_db: -10.0
+    vv_min_db: -35.0
+    vv_max_db: 5.0
+
+characterization:
+  pixel_spacing_meters: 10.0
+  min_slick_pixels: 50
+  connectivity: 8
+
+hindcast:
+  solver: "rk4"
+  default_drift_hours: 6.0
+  windage_factor: 0.03
+  current_factor: 1.0
+  uncertainty_growth_km_per_hr: 0.75
+  fallback_model: "DirectObservationBaseline"
+
+ais:
+  search_radius_km: 50.0
+  lookback_hours: 24.0
+  lookforward_hours: 6.0
+  scoring_weights:
+    spatial: 0.35
+    temporal: 0.30
+    trajectory: 0.20
+    kinematics: 0.15
+  classification_thresholds:
+    potential_association: 0.65
+    weak_association: 0.35
+
+security:
+  authentication_required: false
+  external_api_keys_required: false
+  data_provenance_barrier_enforced: true

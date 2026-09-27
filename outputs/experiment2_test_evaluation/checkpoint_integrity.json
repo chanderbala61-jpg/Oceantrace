@@ -1,0 +1,12 @@
+{
+  "checkpoint_path": "outputs/checkpoints/best.pth",
+  "sha256_before": "cd648dafe044062a69760e71051f06830f62f7857bec42e5ea162400a20648d6",
+  "sha256_after": "cd648dafe044062a69760e71051f06830f62f7857bec42e5ea162400a20648d6",
+  "unchanged": true,
+  "evaluation_timestamp": "2026-09-27 23:02:37",
+  "training_performed_during_test": false,
+  "optimizer_steps_executed": 0,
+  "test_used_for_model_selection": false,
+  "test_used_for_training": false,
+  "threshold_tuned_on_test": false
+}

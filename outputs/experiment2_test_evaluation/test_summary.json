@@ -1,0 +1,47 @@
+{
+  "model": {
+    "checkpoint": "outputs/checkpoints/best.pth",
+    "checkpoint_chunk": 42,
+    "validation_iou": 0.443058,
+    "validation_dice": 0.614054,
+    "validation_recall": 0.661611,
+    "trainable_parameters": 3712833,
+    "architecture": "SegFormer-B0 (mit_b0)",
+    "input_channels": 2,
+    "channels": [
+      "Sigma0_VH_db",
+      "Sigma0_VV_db"
+    ]
+  },
+  "test_data": {
+    "test_split_size": 180,
+    "readable_test_scenes": 179,
+    "unreadable_test_scenes": 1,
+    "unreadable_file": "00813.tif",
+    "unreadable_reason": "Unreadable TIFF (Explicitly excluded)",
+    "patches_evaluated": 358,
+    "evaluation_patch_size": 256
+  },
+  "test_metrics": {
+    "iou": 0.716094,
+    "dice": 0.834563,
+    "precision": 0.870011,
+    "recall": 0.80189,
+    "pixel_accuracy": 0.974934,
+    "tp": 1483371,
+    "tn": 21390413,
+    "fp": 221631,
+    "fn": 366473,
+    "threshold": 0.5
+  },
+  "integrity": {
+    "training_performed_during_test": false,
+    "test_used_for_model_selection": false,
+    "test_used_for_training": false,
+    "threshold_tuned_on_test": false,
+    "checkpoint_modified": false,
+    "test_data_modified": false,
+    "sha256": "cd648dafe044062a69760e71051f06830f62f7857bec42e5ea162400a20648d6",
+    "status": "SUCCESS"
+  }
+}

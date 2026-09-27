@@ -1,0 +1,96 @@
+================================================================================
+OCEANTRACE EXPERIMENT 2 — FINAL LOCKED TEST EVALUATION REPORT
+Sentinel-1 SAR Dual-Polarization (VH + VV) SegFormer-B0
+================================================================================
+
+1. EXPERIMENT IDENTIFICATION:
+   - Project: OceanTrace Oil Spill Segmentation Baseline
+   - Experiment: Experiment 2 (2-Channel VH + VV Sentinel-1 C-Band SAR)
+   - Date: September 27, 2026
+   - Objective: Scientific, locked out-of-sample test evaluation of the final trained model.
+
+2. MODEL CONFIGURATION:
+   - Architecture: SegFormer-B0 (mit_b0 encoder)
+   - Framework: segmentation_models_pytorch
+   - Input Channels: 2 (Band 0: Sigma0_VH_db, Band 1: Sigma0_VV_db)
+   - Output Classes: 1 (Binary oil spill segmentation)
+   - Trainable Parameters: 3,712,833
+   - Radiometric Calibration:
+       VH: clip [-50.0, -10.0] dB -> min-max [0.0, 1.0]
+       VV: clip [-35.0, +5.0] dB -> min-max [0.0, 1.0]
+
+3. CHECKPOINT INFORMATION:
+   - File Path: outputs/checkpoints/best.pth
+   - Training Origin: Chunk 42 (Final Epoch 1 Checkpoint)
+   - Validation Performance at Selection:
+       Full Validation IoU:  0.443058
+       Full Validation Dice: 0.614054
+       Full Validation Recall: 0.661611
+   - SHA-256 Hash: cd648dafe044062a69760e71051f06830f62f7857bec42e5ea162400a20648d6
+
+4. TEST DATASET:
+   - Split File: data/splits/experiment2_test.csv
+   - Total Test Split Scenes: 180
+   - Geographical & Swath Partitioning: Leakage-free parent acquisition grouping (35 unique parent acquisitions)
+   - Status Prior to Test: Strict quarantine; zero test scenes ever seen during training or validation.
+
+5. TEST DATA INTEGRITY:
+   - Test Images Discovered: 180
+   - Test Masks Discovered: 180
+   - Successfully Evaluated: 179
+   - Unreadable / Excluded: 1
+   - Test Data Modification: None. All original GeoTIFFs and labels remained read-only.
+
+6. EVALUATION METHOD:
+   - Mode: Inference only (model.eval(), torch.no_grad())
+   - Evaluation Methodology: Exact windowed 256x256 patch sampling matching validation pipeline
+   - Patches Evaluated: 358 patches (179 scenes * 2 deterministic patches)
+   - Decision Threshold: sigmoid(logits) >= 0.5 (Fixed baseline threshold; no post-hoc tuning)
+   - Hardware: CPU memory-safe streaming with per-scene garbage collection
+
+7. TEST METRICS (AGGREGATE ON 179 READABLE SCENES):
+   - Intersection over Union (IoU / Jaccard): 0.716094 (71.61%)
+   - Dice Coefficient (F1-Score):             0.834563 (83.46%)
+   - Precision:                               0.870011 (87.00%)
+   - Recall (Sensitivity):                    0.801890 (80.19%)
+   - Pixel Accuracy:                          0.974934 (97.49%)
+
+8. CONFUSION MATRIX:
+   - True Positives (TP):   1,483,371 pixels
+   - False Positives (FP):  221,631 pixels
+   - True Negatives (TN):   21,390,413 pixels
+   - False Negatives (FN):  366,473 pixels
+   - Total Evaluated Pixels: 23,461,888 pixels
+
+9. VALIDATION VS TEST COMPARISON:
+   -------------------------------------------------------------------------
+   Metric                Validation (Chunk 42)    Test (Locked Set)    Delta
+   -------------------------------------------------------------------------
+   IoU (Jaccard)                   0.4431                   0.7161     +0.2730
+   Dice (F1)                       0.6141                   0.8346     +0.2205
+   Recall                          0.6616                   0.8019     +0.1403
+   Precision                       0.5729                   0.8700     +0.2971
+   -------------------------------------------------------------------------
+
+10. UNREADABLE FILE HANDLING:
+    - Excluded Filename: 00813.tif
+    - Status: Explicitly flagged as unreadable in test_scene_results.csv
+    - Metric Assignment: Recorded as null to prevent aggregate bias
+    - Integrity Statement: File was neither deleted nor modified; replacement was not fabricated.
+
+11. CHECKPOINT INTEGRITY:
+    - Pre-Evaluation SHA-256:  cd648dafe044062a69760e71051f06830f62f7857bec42e5ea162400a20648d6
+    - Post-Evaluation SHA-256: cd648dafe044062a69760e71051f06830f62f7857bec42e5ea162400a20648d6
+    - Hash Delta: Identical (unchanged = true)
+    - Optimization Steps: 0 steps executed
+    - Test-Driven Tuning: None performed
+
+12. SCIENTIFIC LIMITATIONS:
+    - Evaluation was conducted on a held-out partition of the Sentinel-1 SAR dataset.
+    - Performance reflects spatial patch-level segmentation under identical acquisition distributions.
+    - These results must NOT be interpreted as establishing operational readiness in open ocean conditions.
+    - True deployment requires external cross-dataset validation across disparate wind speeds and sensor geometries.
+
+13. FINAL STATUS:
+    - TEST EVALUATION COMPLETED SUCCESSFULLY AND RIGOROUSLY LOCKED.
+================================================================================

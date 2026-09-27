@@ -1,0 +1,90 @@
+================================================================================
+OCEANTRACE DEPENDENCY INVENTORY & COMPATIBILITY AUDIT
+================================================================================
+Project: OceanTrace (SIH 2026, Problem Statement ID: 26143)
+Auditor: Senior Integration Engineer
+Audit Date: 2026-09-28
+Python Runtime: 3.11.9 (64-bit)
+
+--------------------------------------------------------------------------------
+1. CORE MACHINE LEARNING & COMPUTER VISION
+--------------------------------------------------------------------------------
+torch                          Installed: 2.13.0     Required: >=2.0.0
+  Usage: PyTorch tensor operations, GPU/CPU tensor device management, checkpoint loading
+torchvision                    Installed: 0.28.0     Required: >=0.15.0
+  Usage: Computer vision transforms and backend utilities
+segmentation-models-pytorch    Installed: 0.5.0      Required: >=0.3.3
+  Usage: SegFormer-B0 architecture (mit_b0 encoder + all-MLP decoder)
+timm                           Installed: 0.9.29     Required: >=0.9.2
+  Usage: Pretrained transformer backbones for segmentation-models-pytorch
+albumentations                 Installed: 2.0.8      Required: >=1.3.1
+  Usage: SAR patch augmentation during training
+opencv-python-headless         Installed: 5.0.0.93   Required: >=4.7.0
+  Usage: Morphological operations, connected components, contour geometry
+
+--------------------------------------------------------------------------------
+2. GEOSPATIAL & SATELLITE IMAGE I/O
+--------------------------------------------------------------------------------
+rasterio                       Installed: 1.4.4      Required: >=1.3.0
+  Usage: Windowed GeoTIFF reading, affine coordinates transform, bounding box CRS
+tifffile                       Installed: 2026.3.3   Required: >=2023.1.0
+  Usage: High-performance reading of SAR TIFF imagery and companion masks
+affine                         Installed: 3.0.1      Required: >=2.4.0
+  Usage: Pixel-to-geographic spatial affine transformation
+
+--------------------------------------------------------------------------------
+3. WEB DEMONSTRATION & OPERATOR INTERFACE
+--------------------------------------------------------------------------------
+streamlit                      Installed: 1.63.0     Required: >=1.30.0
+  Usage: Interactive dashboard UI, sidebar navigation, model demo, file uploader
+streamlit-folium               Installed: 0.27.4     Required: >=0.15.0
+  Usage: Embedding interactive Leaflet/Folium geospatial maps in Streamlit
+folium                         Installed: 0.20.0     Required: >=0.14.0
+  Usage: Interactive maritime maps, vessel trajectories, slick boundaries, uncertainty circles
+plotly                         Installed: 7.0.0      Required: >=5.15.0
+  Usage: Interactive scatter plots, telemetry time series, radar charts
+
+--------------------------------------------------------------------------------
+4. SCIENTIFIC COMPUTING & NUMERICAL ALGORITHMS
+--------------------------------------------------------------------------------
+numpy                          Installed: 2.4.6      Required: >=1.24.0
+  Usage: Array manipulations, SAR dB normalization, RK4 numerical integration
+scipy                          Installed: 1.17.1     Required: >=1.10.0
+  Usage: Spatial KD-trees, connected component labeling, statistical distributions
+pandas                         Installed: 3.0.5      Required: >=2.0.0
+  Usage: AIS trajectory table parsing, candidate filtering, CSV report generation
+scikit-learn                   Installed: 1.9.0      Required: >=1.2.0
+  Usage: Metrics calculation, confusion matrix, clustering
+scikit-image                   Installed: 0.26.0     Required: >=0.20.0
+  Usage: Edge gradient filtering, texture metrics, damping contrast computation
+
+--------------------------------------------------------------------------------
+5. VISUALIZATION & REPORTING
+--------------------------------------------------------------------------------
+matplotlib                     Installed: 3.11.1     Required: >=3.7.0
+  Usage: Multi-panel investigation dashboard PNG generation, false-positive maps
+Pillow                         Installed: 12.3.0     Required: >=9.5.0
+  Usage: Raster image manipulation, mask overlay rendering
+Jinja2                         Installed: 3.1.6      Required: >=3.1.0
+  Usage: HTML investigation report template rendering
+
+--------------------------------------------------------------------------------
+6. CONFIGURATION & UTILITIES
+--------------------------------------------------------------------------------
+pyyaml                         Installed: 6.0.3      Required: >=6.0
+  Usage: Parsing pipeline configurations (config.yaml, experiment configs)
+tqdm                           Installed: 4.70.0     Required: >=4.65.0
+  Usage: Progress visualization for batch processing and evaluation
+pydantic                       Installed: 2.13.5     Required: >=2.0.0
+  Usage: Data validation schemas and typed records
+
+--------------------------------------------------------------------------------
+7. DEPENDENCY CLEANUP & AUDIT FINDINGS
+--------------------------------------------------------------------------------
+- All required libraries are installed and importable in Python 3.11.
+- No package conflicts or broken C-extensions detected.
+- `requirements.txt` previously lacked `streamlit`, `folium`, `streamlit-folium`, and `scipy`.
+  These are now cataloged for inclusion in the updated clean `requirements.txt`.
+- No proprietary or non-standard packages required.
+- Zero hardcoded local Windows paths in package specifications.
+================================================================================

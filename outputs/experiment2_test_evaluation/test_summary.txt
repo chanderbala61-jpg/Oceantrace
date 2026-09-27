@@ -1,0 +1,38 @@
+------------------------------------------
+MODEL
+------------------------------------------
+checkpoint: outputs/checkpoints/best.pth
+checkpoint_chunk: 42
+validation_iou: 0.4431
+validation_dice: 0.6141
+
+------------------------------------------
+TEST DATA
+------------------------------------------
+test_split_size: 180
+readable_test_scenes: 179
+unreadable_test_scenes: 1
+unreadable_file: 00813.tif
+
+------------------------------------------
+TEST METRICS
+------------------------------------------
+IoU: 0.716094
+Dice: 0.834563
+Precision: 0.870011
+Recall: 0.801890
+Pixel Accuracy: 0.974934
+TP: 1,483,371
+TN: 21,390,413
+FP: 221,631
+FN: 366,473
+
+------------------------------------------
+INTEGRITY
+------------------------------------------
+training_performed_during_test: false
+test_used_for_model_selection: false
+test_used_for_training: false
+threshold_tuned_on_test: false
+checkpoint_modified: false
+status: SUCCESS
