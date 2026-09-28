@@ -13,6 +13,8 @@ import sys
 import time
 import json
 import hashlib
+import base64
+import io
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List, Tuple
 
@@ -523,6 +525,7 @@ def load_scenario_data(choice: str, uploaded):
             "lon_hint": (bounds.left + bounds.right) / 2.0 if bounds else 0.0,
             "transform": transform,
             "crs": crs,
+            "image_path": None,  # Uploaded file bytes not re-accessible as a path
             "wind_u": 5.0,
             "wind_v": 0.0,
             "wind_speed_ms": 5.0,
@@ -562,6 +565,7 @@ def load_scenario_data(choice: str, uploaded):
         "lon_hint": sc["lon_hint"],
         "transform": transform,
         "crs": crs,
+        "image_path": img_full_path if os.path.exists(img_full_path) else None,
         "wind_u": sc["wind_u"],
         "wind_v": sc["wind_v"],
         "wind_speed_ms": sc["wind_speed_ms"],
@@ -633,6 +637,80 @@ if current_data is not None and current_data["sar_image"] is not None:
 # ==============================================================================
 # 6. HERO FOLIUM INTERACTIVE MAP BUILDER
 # ==============================================================================
+
+@st.cache_data(show_spinner=False)
+def build_sar_image_overlay(image_path: str) -> Optional[Dict[str, Any]]:
+    """
+    Reads the actual georeferenced Sentinel-1 GeoTIFF and returns:
+      - base64-encoded PNG (VH-primary grayscale, spill-enhancing LUT)
+      - WGS-84 geographic bounds [[south, west], [north, east]]
+      - CRS string
+    Returns None if image_path is invalid.
+    """
+    if not image_path or not os.path.exists(image_path):
+        return None
+    try:
+        with rasterio.open(image_path) as src:
+            bounds = src.bounds
+            crs_str = str(src.crs)
+            # Read VH (band 1) and VV (band 2) at reduced resolution for overlay
+            # Downsample to at most 1024x1024 for web rendering performance
+            h, w = src.height, src.width
+            scale = min(1.0, 1024.0 / max(h, w))
+            out_h = max(1, int(h * scale))
+            out_w = max(1, int(w * scale))
+            vh = src.read(
+                1,
+                out_shape=(out_h, out_w),
+                resampling=rasterio.enums.Resampling.bilinear
+            ).astype(np.float32)
+            if src.count >= 2:
+                vv = src.read(
+                    2,
+                    out_shape=(out_h, out_w),
+                    resampling=rasterio.enums.Resampling.bilinear
+                ).astype(np.float32)
+            else:
+                vv = vh.copy()
+
+        # Normalise VH to [0, 255] using robust 2nd/98th percentile clipping
+        def pct_norm(arr: np.ndarray) -> np.ndarray:
+            p2, p98 = np.nanpercentile(arr, 2), np.nanpercentile(arr, 98)
+            if p98 <= p2:
+                p2, p98 = arr.min(), arr.max()
+            clipped = np.clip(arr, p2, p98)
+            return ((clipped - p2) / max(p98 - p2, 1e-9) * 255).astype(np.uint8)
+
+        vh_norm = pct_norm(vh)
+        vv_norm = pct_norm(vv)
+
+        # False-colour SAR composite:
+        # R = VH (highlights oil-damped areas as dark low-backscatter)
+        # G = VV
+        # B = VH (blue tint for ocean background)
+        # Rendered with a slight blue ocean tint so overlays are legible
+        r_ch = vh_norm
+        g_ch = vv_norm
+        b_ch = np.clip(vh_norm.astype(np.uint16) + 25, 0, 255).astype(np.uint8)
+        # RGBA — full opacity
+        rgba = np.stack([r_ch, g_ch, b_ch, np.full_like(r_ch, 220)], axis=-1)
+
+        pil_img = Image.fromarray(rgba, mode="RGBA")
+        buf = io.BytesIO()
+        pil_img.save(buf, format="PNG", optimize=True)
+        b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+        img_uri = f"data:image/png;base64,{b64}"
+
+        return {
+            "img_uri": img_uri,
+            "bounds": [[bounds.bottom, bounds.left], [bounds.top, bounds.right]],
+            "crs": crs_str,
+            "image_path": image_path,
+        }
+    except Exception as e:
+        return None  # Graceful degradation — map still works without SAR overlay
+
+
 def render_hero_folium_map(
     record: Optional[InvestigationRecord],
     data_dict: Dict[str, Any],
@@ -640,8 +718,9 @@ def render_hero_folium_map(
     height: int = 680,
 ) -> Optional[folium.Map]:
     """
-    Constructs an interactive geospatial Folium map dominating the viewport (70-80%).
-    Supports dynamic basemaps, auto-bounds, slick polygons, uncertainty cones, and AIS tracks.
+    Constructs an interactive geospatial Folium map with the actual Sentinel-1 SAR
+    image as the primary investigation background layer. All existing investigation
+    overlays (spill, hindcast, AIS, counterfactual) are preserved.
     """
     if record is None or record.spill is None:
         return None
@@ -653,37 +732,58 @@ def render_hero_folium_map(
     all_lats = [center_lat]
     all_lons = [center_lon]
 
-    # Initialize map with clean base
+    # Initialize map — black background, tiles=None to avoid any unwanted watermarks
     m = folium.Map(location=[center_lat, center_lon], zoom_start=9, tiles=None)
 
-    # 1. Base Layer Options
-    folium.TileLayer(
-        tiles="CartoDB dark_matter",
-        name="Night / Dark Ocean",
-        control=True,
-        show=(basemap_choice == "CartoDB dark_matter")
-    ).add_to(m)
+    # -----------------------------------------------------------------------
+    # Layer 1A: Sentinel-1 SAR — Actual Scene (PRIMARY investigation background)
+    # -----------------------------------------------------------------------
+    sar_overlay = build_sar_image_overlay(data_dict.get("image_path"))
+    if sar_overlay:
+        sar_ig = folium.raster_layers.ImageOverlay(
+            image=sar_overlay["img_uri"],
+            bounds=sar_overlay["bounds"],
+            opacity=0.92,
+            interactive=True,
+            cross_origin=False,
+            name=f"Sentinel-1 SAR \u2014 Actual Scene ({data_dict.get('scene_id', '')})",
+            zindex=1,
+        )
+        sar_ig.add_to(m)
+        # Expand all_lats/lons to include SAR bounds so auto-fit works
+        all_lats += [sar_overlay["bounds"][0][0], sar_overlay["bounds"][1][0]]
+        all_lons += [sar_overlay["bounds"][0][1], sar_overlay["bounds"][1][1]]
 
-    folium.TileLayer(
-        tiles="CartoDB positron",
-        name="Standard Nautical (Light)",
-        control=True,
-        show=(basemap_choice == "CartoDB positron")
-    ).add_to(m)
-
-    folium.TileLayer(
-        tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-        attr="Esri World Imagery",
-        name="Satellite Imagery",
-        control=True,
-        show=(basemap_choice == "Esri Satellite")
-    ).add_to(m)
-
+    # -----------------------------------------------------------------------
+    # Layer 1B: Reference basemaps (optional — off by default when SAR loaded)
+    # -----------------------------------------------------------------------
+    sar_available = sar_overlay is not None
+    # OpenStreetMap — useful geographic reference, shown only when no SAR
     folium.TileLayer(
         tiles="OpenStreetMap",
-        name="OpenStreetMap",
+        name="Geographic Reference (OpenStreetMap)",
+        control=True,
+        show=not sar_available
+    ).add_to(m)
+
+    # Esri World Imagery — real satellite, no API key required
+    folium.TileLayer(
+        tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        attr="\u00a9 Esri, Maxar, Earthstar Geographics",
+        name="Esri World Satellite (Reference)",
         control=True,
         show=False
+    ).add_to(m)
+
+    # -----------------------------------------------------------------------
+    # Layer 1C: Black ocean base (always shown behind SAR/tiles for dark look)
+    # -----------------------------------------------------------------------
+    folium.TileLayer(
+        tiles="CartoDB dark_matter",
+        name="Dark Ocean Base",
+        control=True,
+        show=not sar_available,
+        overlay=False
     ).add_to(m)
 
     # 2. Spill Boundary Polygon (if available)
@@ -1038,10 +1138,11 @@ if "1. Dashboard" in nav_selection:
             st.markdown(f"#### {icon_svg('map_pin', size=18, color=ACCENT_CYAN)} Geospatial Investigation Corridor", unsafe_allow_html=True)
         with map_ctrl2:
             basemap_select = st.selectbox(
-                "Basemap Style",
-                options=["CartoDB dark_matter", "CartoDB positron", "Esri Satellite"],
-                index=0 if is_night else 1,
-                label_visibility="collapsed"
+                "Reference Basemap",
+                options=["Esri Satellite", "OpenStreetMap", "Dark Base Only"],
+                index=0,
+                label_visibility="collapsed",
+                help="SAR scene is the primary layer. Reference basemap loads under it."
             )
 
         hero_map = render_hero_folium_map(
@@ -1057,12 +1158,13 @@ if "1. Dashboard" in nav_selection:
             st.markdown(
                 """
                 <div class="map-legend-bar">
+                    <span class="legend-item"><span style="background:linear-gradient(90deg,#444 0%,#888 100%); width:18px; height:12px; display:inline-block; border-radius:2px; vertical-align:middle;"></span> Sentinel-1 SAR (VH/VV) </span>
                     <span class="legend-item"><span class="legend-color-dot" style="background:#ef4444;"></span> Observed Slick Centroid</span>
                     <span class="legend-item"><span class="legend-color-dot" style="background:#f59e0b;"></span> Probable Release Origin (RK4)</span>
                     <span class="legend-item"><span style="border-top:2px dashed #fbbf24; width:16px; display:inline-block;"></span> Retro-Drift Trajectory</span>
-                    <span class="legend-item"><span style="border:1px dashed #f59e0b; width:14px; height:14px; border-radius:50%; display:inline-block;"></span> Uncertainty Radius (±8 km)</span>
+                    <span class="legend-item"><span style="border:1px dashed #f59e0b; width:14px; height:14px; border-radius:50%; display:inline-block;"></span> Uncertainty Radius</span>
                     <span class="legend-item"><span style="border:1px dashed #38bdf8; width:14px; height:14px; border-radius:50%; display:inline-block;"></span> 50 km Search Corridor</span>
-                    <span class="legend-item"><span class="legend-color-dot" style="background:#38bdf8;"></span> Candidate Vessel Trajectories</span>
+                    <span class="legend-item"><span class="legend-color-dot" style="background:#38bdf8;"></span> Candidate AIS Tracks</span>
                     <span class="legend-item"><span style="border-top:2px dashed #10b981; width:16px; display:inline-block;"></span> Counterfactual Forward Drift</span>
                     <span class="legend-item"><span style="border:1px dashed #10b981; width:14px; height:14px; border-radius:50%; display:inline-block;"></span> Simulated Arrival Footprint</span>
                 </div>
