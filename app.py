@@ -79,6 +79,11 @@ if is_night:
     BANNER_BG = "linear-gradient(90deg, #0369a1 0%, #0284c7 50%, #0ea5e9 100%)"
     BANNER_TEXT = "#ffffff"
     SIDEBAR_BG = "#070d1e"
+    SIDEBAR_TEXT = "#ffffff"
+    SIDEBAR_LABEL = "#f1f5f9"
+    SIDEBAR_MUTED = "#93c5fd"
+    SIDEBAR_CARD_BG = "#131f38"
+    SIDEBAR_CARD_BORDER = "#1e3a8a"
     DISCLAIMER_BG = "#141d33"
     DISCLAIMER_BORDER = "#38bdf8"
     DEFAULT_BASEMAP = "CartoDB dark_matter"
@@ -93,6 +98,11 @@ else:
     BANNER_BG = "linear-gradient(90deg, #0284c7 0%, #0369a1 100%)"
     BANNER_TEXT = "#ffffff"
     SIDEBAR_BG = "#f8fafc"
+    SIDEBAR_TEXT = "#0f172a"
+    SIDEBAR_LABEL = "#1e293b"
+    SIDEBAR_MUTED = "#2563eb"
+    SIDEBAR_CARD_BG = "#ffffff"
+    SIDEBAR_CARD_BORDER = "#cbd5e1"
     DISCLAIMER_BG = "#f0f9ff"
     DISCLAIMER_BORDER = "#0284c7"
     DEFAULT_BASEMAP = "CartoDB positron"
@@ -106,9 +116,57 @@ THEME_CSS = f"""
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     }}
     
+    /* High-Contrast Professional Sidebar */
     [data-testid="stSidebar"] {{
-        background-color: {SIDEBAR_BG};
+        background-color: {SIDEBAR_BG} !important;
         border-right: 1px solid {CARD_BORDER};
+    }}
+    [data-testid="stSidebar"] p,
+    [data-testid="stSidebar"] span,
+    [data-testid="stSidebar"] label {{
+        color: {SIDEBAR_LABEL};
+    }}
+    [data-testid="stSidebar"] [data-testid="stWidgetLabel"] p {{
+        color: {SIDEBAR_TEXT} !important;
+        font-weight: 700 !important;
+        font-size: 0.90rem !important;
+        letter-spacing: 0.02em;
+    }}
+    [data-testid="stSidebar"] div[role="radiogroup"] label {{
+        background: rgba(255, 255, 255, 0.04) !important;
+        border: 1px solid rgba(255, 255, 255, 0.08) !important;
+        border-radius: 6px !important;
+        padding: 6px 12px !important;
+        margin-bottom: 5px !important;
+        transition: all 0.15s ease-in-out !important;
+    }}
+    [data-testid="stSidebar"] div[role="radiogroup"] label:hover {{
+        background: rgba(56, 189, 248, 0.12) !important;
+        border-color: rgba(56, 189, 248, 0.4) !important;
+    }}
+    [data-testid="stSidebar"] div[role="radiogroup"] label p {{
+        color: {SIDEBAR_TEXT} !important;
+        font-weight: 600 !important;
+        font-size: 0.88rem !important;
+    }}
+    [data-testid="stSidebar"] div[role="radiogroup"] label[data-checked="true"],
+    [data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) {{
+        background: rgba(56, 189, 248, 0.20) !important;
+        border: 1px solid #38bdf8 !important;
+    }}
+    [data-testid="stSidebar"] div[role="radiogroup"] label[data-checked="true"] p,
+    [data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) p {{
+        color: #38bdf8 !important;
+        font-weight: 700 !important;
+    }}
+    [data-testid="stSidebar"] .stSelectbox label p {{
+        color: {SIDEBAR_TEXT} !important;
+        font-weight: 700 !important;
+        font-size: 0.88rem !important;
+    }}
+    [data-testid="stSidebar"] hr {{
+        border-color: rgba(56, 189, 248, 0.25) !important;
+        margin: 14px 0 !important;
     }}
 
     /* Professional Technical Header */
@@ -341,10 +399,11 @@ with st.sidebar:
         f"""
         <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
             {icon_svg('satellite', size=22, color=ACCENT_CYAN)}
-            <span style="font-size:1.25rem; font-weight:800; letter-spacing:0.06em; color:{ACCENT_CYAN};">OCEANTRACE</span>
+            <span style="font-size:1.30rem; font-weight:800; letter-spacing:0.06em; color:{ACCENT_CYAN};">OCEANTRACE</span>
         </div>
-        <div style="font-size:0.75rem; color:{TEXT_MUTED}; margin-bottom:14px;">
-            Satellite Oil Spill Investigation<br>SIH 2026 | PS ID: 26143
+        <div style="font-size:0.80rem; font-weight:600; color:{SIDEBAR_MUTED}; margin-bottom:14px; line-height:1.4;">
+            Satellite Oil Spill Investigation<br>
+            <span style="color:{SIDEBAR_LABEL}; font-weight:700;">SIH 2026 | PS ID: 26143</span>
         </div>
         """,
         unsafe_allow_html=True
@@ -352,22 +411,22 @@ with st.sidebar:
 
     st.markdown(
         f"""
-        <div style="background:{CARD_BG}; border:1px solid {CARD_BORDER}; border-radius:6px; padding:10px 12px; margin-bottom:14px;">
-            <div style="font-size:0.72rem; font-weight:700; color:{TEXT_MUTED}; margin-bottom:6px; letter-spacing:0.05em;">SYSTEM STATUS</div>
-            <div style="display:flex; justify-content:space-between; margin-bottom:4px; font-size:0.8rem;">
-                <span style="color:{TEXT_MUTED};">Detection ML:</span>
+        <div style="background:{SIDEBAR_CARD_BG}; border:1px solid {SIDEBAR_CARD_BORDER}; border-radius:8px; padding:12px 14px; margin-bottom:16px;">
+            <div style="font-size:0.75rem; font-weight:800; color:{ACCENT_CYAN}; margin-bottom:8px; letter-spacing:0.06em; text-transform:uppercase;">SYSTEM STATUS</div>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; font-size:0.85rem;">
+                <span style="color:{SIDEBAR_TEXT}; font-weight:600;">Detection ML:</span>
                 <span class="status-badge status-badge-ready">READY</span>
             </div>
-            <div style="display:flex; justify-content:space-between; margin-bottom:4px; font-size:0.8rem;">
-                <span style="color:{TEXT_MUTED};">Hindcast RK4:</span>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; font-size:0.85rem;">
+                <span style="color:{SIDEBAR_TEXT}; font-weight:600;">Hindcast RK4:</span>
                 <span class="status-badge status-badge-ready">READY</span>
             </div>
-            <div style="display:flex; justify-content:space-between; margin-bottom:4px; font-size:0.8rem;">
-                <span style="color:{TEXT_MUTED};">AIS Correlation:</span>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; font-size:0.85rem;">
+                <span style="color:{SIDEBAR_TEXT}; font-weight:600;">AIS Correlation:</span>
                 <span class="status-badge status-badge-ready">READY</span>
             </div>
-            <div style="display:flex; justify-content:space-between; font-size:0.8rem;">
-                <span style="color:{TEXT_MUTED};">Model Checkpoint:</span>
+            <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.85rem;">
+                <span style="color:{SIDEBAR_TEXT}; font-weight:600;">Model Checkpoint:</span>
                 <span class="status-badge status-badge-ready">VERIFIED</span>
             </div>
         </div>
@@ -375,7 +434,7 @@ with st.sidebar:
         unsafe_allow_html=True
     )
 
-    st.markdown(f"**{icon_svg('route', size=15, color=TEXT_MUTED)} Modules**", unsafe_allow_html=True)
+    st.markdown(f"<div style='font-size:0.92rem; font-weight:700; color:{SIDEBAR_TEXT}; margin-bottom:6px;'>{icon_svg('route', size=16, color=ACCENT_CYAN)} Modules</div>", unsafe_allow_html=True)
     nav_selection = st.radio(
         "Navigation Module",
         options=[
@@ -393,7 +452,7 @@ with st.sidebar:
     )
 
     st.markdown("---")
-    st.markdown(f"**{icon_svg('crosshair', size=15, color=TEXT_MUTED)} Scenario Selection**", unsafe_allow_html=True)
+    st.markdown(f"<div style='font-size:0.92rem; font-weight:700; color:{SIDEBAR_TEXT}; margin-bottom:6px;'>{icon_svg('crosshair', size=16, color=ACCENT_CYAN)} Scenario Selection</div>", unsafe_allow_html=True)
     scenario_choice = st.selectbox(
         "Investigation Scenario",
         options=list(SCENARIOS.keys()) + ["Upload Custom SAR GeoTIFF"],
@@ -412,11 +471,11 @@ with st.sidebar:
     st.markdown("---")
     st.markdown(
         f"""
-        <div style="font-size:0.74rem; color:{TEXT_MUTED}; line-height:1.45;">
-            <b>Investigation Protocol:</b><br>
-            Deterministic RK4 retro-trajectory integration.<br>
-            Non-accusatory candidate association policy.<br>
-            Frozen benchmark evaluation immutable.
+        <div style="background:{CARD_BG}; border:1px solid {CARD_BORDER}; border-radius:6px; padding:10px 12px; font-size:0.76rem; color:{SIDEBAR_LABEL}; line-height:1.5;">
+            <b style="color:{ACCENT_CYAN};">Investigation Protocol:</b><br>
+            • Deterministic RK4 retro-trajectory integration.<br>
+            • Non-accusatory candidate association policy.<br>
+            • Frozen benchmark evaluation immutable.
         </div>
         """,
         unsafe_allow_html=True

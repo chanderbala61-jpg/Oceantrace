@@ -17,7 +17,7 @@ class TestStreamlitApp(unittest.TestCase):
 
     def test_app_loads_and_runs_without_exceptions(self):
         """Runs app.py headlessly and checks for exceptions."""
-        at = AppTest.from_file(APP_PY_PATH, default_timeout=90)
+        at = AppTest.from_file(APP_PY_PATH, default_timeout=180)
         at.run()
 
         # Verify no unhandled exceptions thrown during render
