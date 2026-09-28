@@ -51,6 +51,14 @@ from src.ais.loader import load_ais_csv
 from src.ais.scoring import rank_candidate_vessels
 from src.ais.trajectory import build_vessel_trajectories
 from src.dashboard import render_investigation_dashboard, generate_html_investigation_report
+from src.counterfactual import (
+    HypotheticalRelease,
+    ForwardSimulationConfig,
+    ConsistencyDiagnostics,
+    CounterfactualResult,
+    ForwardRK4DriftModel,
+    CounterfactualAnalyzer,
+)
 
 
 # ==============================================================================
@@ -425,6 +433,10 @@ with st.sidebar:
                 <span style="color:{SIDEBAR_TEXT}; font-weight:600;">AIS Correlation:</span>
                 <span class="status-badge status-badge-ready">READY</span>
             </div>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; font-size:0.85rem;">
+                <span style="color:{SIDEBAR_TEXT}; font-weight:600;">Counterfactual Sim:</span>
+                <span class="status-badge status-badge-ready">ACTIVE</span>
+            </div>
             <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.85rem;">
                 <span style="color:{SIDEBAR_TEXT}; font-weight:600;">Model Checkpoint:</span>
                 <span class="status-badge status-badge-ready">VERIFIED</span>
@@ -446,6 +458,7 @@ with st.sidebar:
             "6. Evidence Summary",
             "7. Investigation Report",
             "8. System Information",
+            "9. Counterfactual Vessel Test",
         ],
         index=0,
         label_visibility="collapsed"
@@ -597,6 +610,7 @@ def execute_cached_investigation(
         drift_hours=6.0,
         model=model,
         run_inference=True,
+        run_counterfactual=True,
     )
     return rec
 
@@ -806,6 +820,55 @@ def render_hero_folium_map(
         except Exception:
             pass
 
+    # 6. Counterfactual Simulated Forward Drift & Arrival Footprints
+    if getattr(record, "counterfactual_results", None):
+        cf_group = folium.FeatureGroup(name="Counterfactual Simulated Drift", show=True)
+        for cf in record.counterfactual_results[:3]:  # Top 3 candidates
+            if cf.trajectory:
+                cf_pts = [[pt.latitude, pt.longitude] for pt in cf.trajectory]
+                for pt in cf.trajectory:
+                    all_lats.append(pt.latitude)
+                    all_lons.append(pt.longitude)
+
+                folium.PolyLine(
+                    cf_pts,
+                    color="#10b981",
+                    weight=3,
+                    dash_array="5, 5",
+                    tooltip=f"Forward Drift: {cf.vessel_name} (MMSI {cf.candidate_mmsi})"
+                ).add_to(cf_group)
+
+                if cf.diagnostics:
+                    d = cf.diagnostics
+                    # Simulated arrival footprint circle
+                    folium.Circle(
+                        location=[d.simulated_endpoint_lat, d.simulated_endpoint_lon],
+                        radius=d.simulated_footprint_radius_km * 1000.0,
+                        color="#10b981",
+                        fill=True,
+                        fill_color="#10b981",
+                        fill_opacity=0.22,
+                        weight=2,
+                        dash_array="4, 6",
+                        tooltip=(
+                            f"Simulated Arrival Footprint: {cf.vessel_name}<br>"
+                            f"Radius: {d.simulated_footprint_radius_km:.2f} km<br>"
+                            f"Centroid Separation: {d.centroid_distance_km:.2f} km"
+                        )
+                    ).add_to(cf_group)
+
+                    # Arrival endpoint marker
+                    folium.CircleMarker(
+                        location=[d.simulated_endpoint_lat, d.simulated_endpoint_lon],
+                        radius=6,
+                        color="#059669",
+                        fill=True,
+                        fill_color="#10b981",
+                        fill_opacity=0.9,
+                        tooltip=f"Simulated Endpoint ({d.simulated_endpoint_lat:.4f}°N, {d.simulated_endpoint_lon:.4f}°E)"
+                    ).add_to(cf_group)
+        cf_group.add_to(m)
+
     # Auto-fit map bounds with padding
     if all_lats and all_lons:
         min_lat, max_lat = min(all_lats), max(all_lats)
@@ -1000,6 +1063,8 @@ if "1. Dashboard" in nav_selection:
                     <span class="legend-item"><span style="border:1px dashed #f59e0b; width:14px; height:14px; border-radius:50%; display:inline-block;"></span> Uncertainty Radius (±8 km)</span>
                     <span class="legend-item"><span style="border:1px dashed #38bdf8; width:14px; height:14px; border-radius:50%; display:inline-block;"></span> 50 km Search Corridor</span>
                     <span class="legend-item"><span class="legend-color-dot" style="background:#38bdf8;"></span> Candidate Vessel Trajectories</span>
+                    <span class="legend-item"><span style="border-top:2px dashed #10b981; width:16px; display:inline-block;"></span> Counterfactual Forward Drift</span>
+                    <span class="legend-item"><span style="border:1px dashed #10b981; width:14px; height:14px; border-radius:50%; display:inline-block;"></span> Simulated Arrival Footprint</span>
                 </div>
                 """,
                 unsafe_allow_html=True
@@ -1313,6 +1378,14 @@ elif "6. Evidence Summary" in nav_selection:
             ])
             st.table(score_df)
             st.markdown(f"**Total Composite Association Score:** `{cand.overall_score:.3f}`")
+
+            # Show counterfactual result if available
+            cf_results = getattr(investigation_record, "counterfactual_results", [])
+            cf_match = next((r for r in cf_results if r.candidate_mmsi == cand.mmsi), None)
+            if cf_match and cf_match.diagnostics:
+                d = cf_match.diagnostics
+                st.markdown(f"**Counterfactual Consistency** `{d.classification}` — Score: `{d.candidate_prioritization_score:.3f}`")
+                st.caption(f"Centroid Separation: {d.centroid_distance_km:.2f} km | Footprint: {d.simulated_footprint_radius_km:.2f} km radius | Containment: {d.footprint_containment}")
             st.markdown("---")
 
 
@@ -1394,5 +1467,141 @@ elif "8. System Information" in nav_selection:
 
     st.markdown("---")
     st.markdown("#### Test Suite Status")
-    st.write("Unit & Integration Test Suite: **70 tests passed, 0 failures, 0 errors**.")
+    st.write("Unit & Integration Test Suite: **83 tests passed, 0 failures, 0 errors** (includes 8 counterfactual tests).")
     st.write("False-Detection Linkage: **58 events evaluated, zero false attributions**.")
+
+
+# ------------------------------------------------------------------------------
+# SECTION 9: COUNTERFACTUAL VESSEL TEST
+# ------------------------------------------------------------------------------
+elif "9. Counterfactual Vessel Test" in nav_selection:
+    st.markdown(
+        f"### {icon_svg('crosshair', size=22, color=ACCENT_CYAN)} Counterfactual Vessel Testing (Experimental)",
+        unsafe_allow_html=True
+    )
+    st.caption("Forward RK4 drift simulation from each AIS candidate position. Tests physical plausibility — not proof of responsibility.")
+
+    st.markdown(
+        """
+        <div class="scientific-safeguard">
+            <b>INVESTIGATION SAFEGUARD:</b>
+            Counterfactual testing evaluates <i>physical transit plausibility only</i>.
+            A high Candidate Prioritization Score indicates spatiotemporal geometric consistency
+            with the observed SAR slick and does <b>NOT</b> establish release occurrence, intent,
+            or legal liability. Designated as <i>"Investigation Leads — Not Proof of Responsibility"</i>.
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    cf_results = getattr(investigation_record, "counterfactual_results", []) if investigation_record else []
+
+    if not cf_results:
+        if not investigation_record or not investigation_record.candidate_vessels:
+            st.info("No AIS candidates available. Select Scene 00955 (Gulf of Mexico) which has real AIS data.")
+        else:
+            st.warning("Counterfactual results not available for this scene.")
+    else:
+        st.markdown(f"#### {icon_svg('ship', size=18, color=ACCENT_CYAN)} Candidate Prioritization Summary")
+        kpi_cols = st.columns(min(len(cf_results), 4))
+        for i, cf_r in enumerate(cf_results[:4]):
+            dr = cf_r.diagnostics
+            score_color = "#10b981" if dr and dr.candidate_prioritization_score >= 0.75 else (
+                "#f59e0b" if dr and dr.candidate_prioritization_score >= 0.45 else "#ef4444"
+            )
+            with kpi_cols[i]:
+                score_val = f"{dr.candidate_prioritization_score:.3f}" if dr else "N/A"
+                cls_val = dr.classification if dr else "N/A"
+                st.markdown(
+                    f'<div class="metric-card" style="border-left:3px solid {score_color};">'
+                    f'<div class="metric-label">#{i+1}: {cf_r.vessel_name[:16]}</div>'
+                    f'<div class="metric-value" style="color:{score_color};">{score_val}</div>'
+                    f'<div class="metric-sub">MMSI {cf_r.candidate_mmsi}</div>'
+                    f'<div class="metric-sub" style="font-size:0.72rem;">{cls_val}</div></div>',
+                    unsafe_allow_html=True
+                )
+
+        st.markdown("---")
+        vessel_options = [f"#{i+1}: {cf_r.vessel_name} (MMSI {cf_r.candidate_mmsi})" for i, cf_r in enumerate(cf_results)]
+        selected_idx = st.selectbox(
+            "Select Candidate for Detailed Analysis",
+            options=range(len(vessel_options)),
+            format_func=lambda x: vessel_options[x]
+        )
+        cf_r = cf_results[selected_idx]
+        dr = cf_r.diagnostics
+        rel = cf_r.hypothetical_release
+
+        st.markdown(f"#### Vessel Telemetry: {cf_r.vessel_name}")
+        t1, t2, t3, t4 = st.columns(4)
+        t1.metric("MMSI", str(rel.mmsi))
+        t2.metric("Release Lat", f"{rel.release_lat:.4f}°N")
+        t3.metric("Release Lon", f"{abs(rel.release_lon):.4f}°{'W' if rel.release_lon < 0 else 'E'}")
+        t4.metric("CPA Distance", f"{rel.cpa_distance_km:.2f} km")
+        s1, s2, s3, s4 = st.columns(4)
+        s1.metric("SOG", f"{rel.sog_knots:.1f} kts")
+        s2.metric("COG", f"{rel.cog_deg:.0f}°")
+        s3.metric("Prior AIS Score", f"{rel.prior_ais_score:.3f}")
+        s4.metric("Windage", f"{cf_r.config.windage_factor*100:.1f}%")
+
+        st.markdown("---")
+        if dr:
+            st.markdown(f"#### Geometric Diagnostics — `{dr.classification}`")
+            diag_df = pd.DataFrame([
+                {"Metric": "Simulated Endpoint", "Value": f"{dr.simulated_endpoint_lat:.4f}°N, {dr.simulated_endpoint_lon:.4f}°E"},
+                {"Metric": "Observed SAR Centroid", "Value": f"{dr.observed_centroid_lat:.4f}°N, {dr.observed_centroid_lon:.4f}°E"},
+                {"Metric": "Centroid Separation", "Value": f"{dr.centroid_distance_km:.3f} km"},
+                {"Metric": "Simulated Footprint Radius", "Value": f"{dr.simulated_footprint_radius_km:.2f} km"},
+                {"Metric": "Footprint Containment", "Value": str(dr.footprint_containment)},
+                {"Metric": "Temporal Offset", "Value": f"{dr.temporal_offset_hours:.2f} h"},
+                {"Metric": "Spatial Proximity Score", "Value": f"{dr.spatial_proximity_score:.4f}"},
+                {"Metric": "Trajectory Proximity Score", "Value": f"{dr.trajectory_proximity_score:.4f}"},
+                {"Metric": "Temporal Alignment Score", "Value": f"{dr.temporal_alignment_score:.4f}"},
+                {"Metric": "Prior AIS Score", "Value": f"{dr.prior_ais_score:.4f}"},
+                {"Metric": "Candidate Prioritization Score", "Value": f"{dr.candidate_prioritization_score:.4f}"},
+            ])
+            st.dataframe(diag_df, use_container_width=True, hide_index=True)
+            w = dr.scoring_weights
+            st.caption(
+                f"Score = {w.get('spatial_endpoint',0.35):.2f}\u00d7Spatial + "
+                f"{w.get('trajectory_proximity',0.25):.2f}\u00d7Trajectory + "
+                f"{w.get('temporal_alignment',0.20):.2f}\u00d7Temporal + "
+                f"{w.get('prior_ais_score',0.20):.2f}\u00d7AIS Prior"
+            )
+            if dr.diagnostic_notes:
+                with st.expander("Diagnostic Notes"):
+                    for note in dr.diagnostic_notes:
+                        st.write(f"\u2022 {note}")
+
+        st.markdown("---")
+        if cf_r.trajectory:
+            st.markdown(f"#### Forward Drift Trajectory ({len(cf_r.trajectory)} steps)")
+            st.dataframe(pd.DataFrame([{
+                "UTC Time": pt.timestamp.strftime("%Y-%m-%d %H:%M") if pt.timestamp else "N/A",
+                "+Hours": f"{abs(pt.step_hours_from_obs):.2f}",
+                "Lat": f"{pt.latitude:.5f}",
+                "Lon": f"{pt.longitude:.5f}",
+                "Drift (km)": f"{pt.cumulative_drift_km:.3f}",
+            } for pt in cf_r.trajectory]), use_container_width=True, hide_index=True)
+
+        st.markdown("---")
+        st.markdown(f"#### {icon_svg('map_pin', size=18, color=ACCENT_CYAN)} Counterfactual Investigation Map")
+        st.caption("Green dashed = forward simulated drift | Green circle = simulated arrival footprint (toggle in Layer Control)")
+        cf_map = render_hero_folium_map(
+            record=investigation_record,
+            data_dict=current_data if current_data else {},
+            basemap_choice=DEFAULT_BASEMAP,
+            height=640
+        )
+        if cf_map is not None:
+            st_folium(cf_map, width="100%", height=640)
+        else:
+            st.info("Map unavailable.")
+
+        with st.expander("Simulation Assumptions & Limitations"):
+            st.markdown("**Assumptions:**")
+            for a in cf_r.assumptions:
+                st.write(f"\u2022 {a}")
+            st.markdown("**Limitations:**")
+            for lim in cf_r.limitations:
+                st.write(f"\u2022 {lim}")

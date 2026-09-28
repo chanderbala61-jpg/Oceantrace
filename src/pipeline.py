@@ -73,6 +73,9 @@ class InvestigationRecord:
     candidate_vessels: List[CandidateVesselResult] = field(default_factory=list)
     ais_load_summary: Dict[str, Any] = field(default_factory=dict)
     
+    # Stage 7: Counterfactual Vessel Testing (Experimental Add-On)
+    counterfactual_results: List[Any] = field(default_factory=list)
+    
     # Warnings, Assumptions, and Missing Data Tracking
     warnings: List[str] = field(default_factory=list)
     assumptions: List[str] = field(default_factory=list)
@@ -114,7 +117,18 @@ class InvestigationRecord:
                 lines.append(f"  - Rank #{cand.rank}: {v_name} | {cand.classification} (Score: {cand.overall_score:.2f}, Closest Approach: {d_km:.1f} km, dt: {dt_h:+.1f}h)")
         else:
             lines.append("AIS Correlation: UNAVAILABLE (No verified AIS transponder data provided)")
-            
+
+        if self.counterfactual_results:
+            lines.append(f"Counterfactual Vessel Tests ({len(self.counterfactual_results)} candidates evaluated):")
+            for cf in self.counterfactual_results[:3]:
+                d = getattr(cf, "diagnostics", None)
+                if d:
+                    lines.append(
+                        f"  - Candidate {cf.vessel_name} (MMSI: {cf.candidate_mmsi}): "
+                        f"Score={d.candidate_prioritization_score:.3f} ({d.classification}), "
+                        f"Endpoint Separation={d.centroid_distance_km:.2f} km"
+                    )
+
         if self.warnings:
             lines.append(f"Warnings ({len(self.warnings)}):")
             for w in self.warnings:
@@ -263,6 +277,7 @@ class OceanTracePipeline:
         run_inference: bool = False,
         inference_patch_size: int = 256,
         inference_stride: int = 256,
+        run_counterfactual: bool = False,
     ) -> InvestigationRecord:
         """
         Executes the complete investigation pipeline on a single SAR observation.
@@ -418,5 +433,20 @@ class OceanTracePipeline:
             record.warnings.append(
                 "AIS data unavailable: No AIS broadcast repository provided for this geographic area and timeframe."
             )
+
+        # ----------------------------------------------------
+        # Stage 7: Counterfactual Vessel Testing (Experimental)
+        # ----------------------------------------------------
+        if run_counterfactual and record.candidate_vessels and record.spill:
+            try:
+                from src.counterfactual import CounterfactualAnalyzer
+                cf_analyzer = CounterfactualAnalyzer()
+                record.counterfactual_results = cf_analyzer.evaluate_all_candidates(
+                    candidates=record.candidate_vessels,
+                    spill=record.spill,
+                    env_provider=env_provider
+                )
+            except Exception as e:
+                record.warnings.append(f"Counterfactual vessel testing encountered an error: {e}")
 
         return record
