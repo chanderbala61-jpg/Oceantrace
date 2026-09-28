@@ -124,6 +124,101 @@ class InvestigationRecord:
         return "\n".join(lines)
 
 
+def compute_pixel_metrics(
+    pred: np.ndarray,
+    gt: np.ndarray,
+    pixel_spacing_m: float = 10.0
+) -> Dict[str, Any]:
+    """
+    Computes rigorous pixel-level confusion matrix metrics.
+    """
+    gt_bin = (gt > 0).astype(np.uint8)
+    pred_bin = (pred > 0).astype(np.uint8)
+
+    tp = int(np.sum((pred_bin == 1) & (gt_bin == 1)))
+    fp = int(np.sum((pred_bin == 1) & (gt_bin == 0)))
+    fn = int(np.sum((pred_bin == 0) & (gt_bin == 1)))
+    tn = int(np.sum((pred_bin == 0) & (gt_bin == 0)))
+
+    union = tp + fp + fn
+    diag_iou = float(tp / (union + 1e-7)) if union > 0 else (1.0 if fp == 0 and fn == 0 else 0.0)
+    diag_dice = float(2 * tp / (2 * tp + fp + fn + 1e-7)) if (2 * tp + fp + fn) > 0 else (1.0 if fp == 0 and fn == 0 else 0.0)
+    precision = float(tp / (tp + fp + 1e-7)) if (tp + fp) > 0 else 0.0
+    recall = float(tp / (tp + fn + 1e-7)) if (tp + fn) > 0 else 0.0
+    pixel_acc = float((tp + tn) / (tp + tn + fp + fn + 1e-7))
+
+    px_area_km2 = (pixel_spacing_m * pixel_spacing_m) / 1e6
+    fp_area_km2 = float(fp * px_area_km2)
+    fn_area_km2 = float(fn * px_area_km2)
+    fp_fraction = float(fp / (tp + fp + 1e-7)) if (tp + fp) > 0 else 0.0
+
+    return {
+        "tp": tp,
+        "fp": fp,
+        "fn": fn,
+        "tn": tn,
+        "tp_pixels": tp,
+        "fp_pixels": fp,
+        "fn_pixels": fn,
+        "tn_pixels": tn,
+        "precision": precision,
+        "recall": recall,
+        "iou": diag_iou,
+        "dice": diag_dice,
+        "diagnostic_iou": diag_iou,
+        "diagnostic_dice": diag_dice,
+        "pixel_accuracy": pixel_acc,
+        "fp_area_km2": fp_area_km2,
+        "fn_area_km2": fn_area_km2,
+        "fp_fraction": fp_fraction,
+    }
+
+
+def classify_scene_detection(metrics: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Classifies a scene based on pixel-level confusion matrix metrics into
+    defensible scientific categories.
+    """
+    tp = metrics.get("tp", metrics.get("tp_pixels", 0))
+    fp = metrics.get("fp", metrics.get("fp_pixels", 0))
+    fn = metrics.get("fn", metrics.get("fn_pixels", 0))
+    diag_iou = metrics.get("iou", metrics.get("diagnostic_iou", 0.0))
+
+    pred_active = tp + fp
+    gt_active = tp + fn
+
+    if pred_active == 0 and gt_active == 0:
+        return {
+            "category": "TRUE_NEGATIVE",
+            "label": "True Negative Scene (Zero Slicks Observed)",
+            "explanation": "Neither ground truth nor model predicted oil."
+        }
+    elif pred_active == 0 and gt_active > 0:
+        return {
+            "category": "FALSE_NEGATIVE",
+            "label": "False Negative Scene (Undetected Ground-Truth Slick)",
+            "explanation": "Ground truth contains oil but model missed it."
+        }
+    elif pred_active > 0 and gt_active == 0:
+        return {
+            "category": "PURE_FALSE_POSITIVE",
+            "label": "Pure False Positive Scene (Zero Ground-Truth Overlap)",
+            "explanation": "Model predicted oil where ground truth has none."
+        }
+    elif diag_iou < 0.50:
+        return {
+            "category": "PARTIAL_DETECTION",
+            "label": "Partial Detection / Boundary Disparity",
+            "explanation": f"Model detected oil with partial ground-truth overlap (IoU = {diag_iou:.2f})."
+        }
+    else:
+        return {
+            "category": "STRONG_DETECTION",
+            "label": "Validated Detection with Ground-Truth Overlap",
+            "explanation": f"High-confidence detection with substantial ground-truth overlap (IoU = {diag_iou:.2f})."
+        }
+
+
 class OceanTracePipeline:
     """
     Autonomous End-to-End Pipeline Orchestrator.
@@ -159,6 +254,7 @@ class OceanTracePipeline:
         origin_lon_hint: Optional[float] = None,
         transform: Optional[Any] = None,
         bbox: Optional[Tuple[float, float, float, float]] = None,
+        crs: Optional[Any] = None,
         env_provider: Optional[EnvironmentalDataProvider] = None,
         ais_csv_path: Optional[str] = None,
         wind_speed_ms: Optional[float] = None,
@@ -201,14 +297,13 @@ class OceanTracePipeline:
                 # If a companion mask is also supplied, preserve it as ground truth
                 if mask is not None:
                     record.ground_truth_mask = mask
-                    intersection = int(np.sum((active_mask > 0) & (mask > 0)))
-                    union = int(np.sum((active_mask > 0) | (mask > 0)))
-                    diag_iou = float(intersection / (union + 1e-7))
-                    denom = int(np.sum(active_mask > 0) + np.sum(mask > 0))
-                    diag_dice = float(2 * intersection / (denom + 1e-7))
+                    metrics = compute_pixel_metrics(active_mask, mask, pixel_spacing_m=10.0)
+                    scene_diag = classify_scene_detection(metrics)
                     record.diagnostic_metrics = {
-                        "diagnostic_iou": diag_iou,
-                        "diagnostic_dice": diag_dice,
+                        **metrics,
+                        "scene_classification": scene_diag["label"],
+                        "scene_category": scene_diag["category"],
+                        "diagnostic_explanation": scene_diag["explanation"],
                         "comparison_note": "Diagnostic scene-level comparison. Does not alter locked test results.",
                     }
             except Exception as e:
@@ -259,6 +354,7 @@ class OceanTracePipeline:
             bbox=bbox,
             origin_lat_hint=origin_lat_hint,
             origin_lon_hint=origin_lon_hint,
+            crs=crs,
         )
 
         if spill is None:

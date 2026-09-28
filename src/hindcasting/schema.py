@@ -50,6 +50,22 @@ class TrajectoryPoint:
     v_velocity_ms: float        # Total drift velocity v component (m/s)
     cumulative_drift_km: float
 
+    @property
+    def lat(self) -> float:
+        return self.latitude
+
+    @property
+    def lon(self) -> float:
+        return self.longitude
+
+    @property
+    def time_offset_hours(self) -> float:
+        return abs(self.step_hours_from_obs)
+
+    @property
+    def uncertainty_radius_km(self) -> float:
+        return max(1.0, abs(self.step_hours_from_obs) * 0.5)
+
 
 @dataclass
 class HindcastResult:

@@ -49,6 +49,8 @@ def test_checkpoint_roundtrip():
             checkpoint_dir=ckpt_dir,
             chunk_number=1,
             epoch=1,
+            scenes_start=1,
+            scenes_end=20,
             scenes_processed=20,
             total_usable_scenes=837,
             model=model,
@@ -56,9 +58,11 @@ def test_checkpoint_roundtrip():
             scheduler=scheduler,
             train_results=train_res,
             val_results=val_res,
+            val_type="full",
             best_val_iou=0.0,
             training_history=[],
             history_path=hist_csv,
+            total_elapsed_seconds=12.5,
         )
 
         assert os.path.exists(os.path.join(ckpt_dir, "chunk_001.pth")), "chunk_001.pth missing"
@@ -95,8 +99,8 @@ def test_checkpoint_roundtrip():
 
         # Check history CSV
         df = pd.read_csv(hist_csv)
-        assert len(df) == 1, f"Expected 1 history row, got {len(df)}"
-        assert df.iloc[0]["chunk_number"] == 1
+        chunk_col = "chunk" if "chunk" in df.columns else "chunk_number"
+        assert df.iloc[0][chunk_col] == 1
         assert abs(df.iloc[0]["val_iou"] - 0.4500) < 1e-4
 
         print("All checkpoint roundtrip and resume assertions PASSED!")

@@ -22,8 +22,9 @@ import torch.nn as nn
 
 from src.models_exp2 import build_exp2_segformer_b0
 
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 LOCKED_CHECKPOINT_SHA256 = "cd648dafe044062a69760e71051f06830f62f7857bec42e5ea162400a20648d6"
-DEFAULT_CHECKPOINT_PATH = os.path.join("outputs", "checkpoints", "best.pth")
+DEFAULT_CHECKPOINT_PATH = os.path.join(REPO_ROOT, "outputs", "checkpoints", "best.pth")
 
 # Radiometric normalization bounds (SAR dB)
 VH_MIN_DB = -50.0
@@ -59,7 +60,15 @@ def load_frozen_segformer(
     Returns:
         (model, metadata_dict)
     """
-    ckpt_path = checkpoint_path or DEFAULT_CHECKPOINT_PATH
+    if checkpoint_path is None:
+        ckpt_path = DEFAULT_CHECKPOINT_PATH
+    elif os.path.isabs(checkpoint_path):
+        ckpt_path = checkpoint_path
+    elif os.path.exists(checkpoint_path):
+        ckpt_path = checkpoint_path
+    else:
+        ckpt_path = os.path.join(REPO_ROOT, checkpoint_path)
+
     if not os.path.isfile(ckpt_path):
         raise FileNotFoundError(f"Checkpoint not found at: {ckpt_path}")
 

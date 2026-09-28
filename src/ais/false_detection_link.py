@@ -38,11 +38,95 @@ from src.ais.features import extract_candidate_features
 from src.ais.scoring import VesselScorer, rank_candidate_vessels
 
 
+from enum import Enum
+from dataclasses import dataclass
+
 # Approved candidate status categories
 STATUS_POTENTIAL_ASSOCIATION = "potential_spatiotemporal_association"
 STATUS_WEAK_ASSOCIATION = "weak_association"
 STATUS_INSUFFICIENT_DATA = "insufficient_data"
 STATUS_NO_MATCHING_VESSEL = "no_matching_vessel"
+
+
+class FalseDetectionStatus(str, Enum):
+    VALIDATED_OIL = "validated_oil"
+    LOOK_ALIKE_AMBIGUOUS = "look_alike_ambiguous"
+    AIS_COVERAGE_GAP = "ais_coverage_gap"
+    FALSE_POSITIVE = "false_positive"
+    INSUFFICIENT_DATA = "insufficient_data"
+
+
+@dataclass
+class SceneDiagnosticStatus:
+    status: FalseDetectionStatus
+    diagnostic_note: str
+    is_false_positive: bool
+    damping_contrast_db: Optional[float] = None
+    ais_coverage_flag: str = "coverage_normal"
+
+
+def evaluate_scene_false_detection_status(
+    has_sar_detection: bool,
+    damping_contrast_db: Optional[float] = None,
+    candidate_vessels: Optional[List[Any]] = None,
+    ais_coverage_available: bool = True,
+    temporal_gap_flag: bool = False,
+) -> SceneDiagnosticStatus:
+    """
+    Evaluates whether an observation represents a verified oil spill, a look-alike,
+    or an AIS observation gap.
+
+    SCIENTIFIC INTEGRITY RULE:
+      Absence of AIS vessel tracks is an observation/coverage gap. It does NOT prove
+      that a SAR detection is false.
+    """
+    vessels = candidate_vessels or []
+
+    if not has_sar_detection:
+        return SceneDiagnosticStatus(
+            status=FalseDetectionStatus.FALSE_POSITIVE if damping_contrast_db is not None and damping_contrast_db > 0 else FalseDetectionStatus.INSUFFICIENT_DATA,
+            diagnostic_note="No SAR oil detection confirmed.",
+            is_false_positive=False,
+            damping_contrast_db=damping_contrast_db,
+            ais_coverage_flag="no_sar_detection"
+        )
+
+    # Check SAR contrast heuristic (< 3.5 dB is look-alike risk)
+    if damping_contrast_db is not None and damping_contrast_db < 3.5:
+        return SceneDiagnosticStatus(
+            status=FalseDetectionStatus.LOOK_ALIKE_AMBIGUOUS,
+            diagnostic_note=f"Low radiometric damping contrast ({damping_contrast_db:.2f} dB < 3.5 dB threshold). High probability of biogenic slick, grease ice, or low-wind look-alike.",
+            is_false_positive=False,
+            damping_contrast_db=damping_contrast_db,
+            ais_coverage_flag="normal" if ais_coverage_available else "coverage_gap"
+        )
+
+    # If SAR detection exists and contrast is adequate or unmeasured:
+    if not ais_coverage_available or temporal_gap_flag:
+        return SceneDiagnosticStatus(
+            status=FalseDetectionStatus.AIS_COVERAGE_GAP,
+            diagnostic_note="SAR anomaly detected. AIS temporal or spatial coverage gap; absence of vessel transmissions does not refute spill presence.",
+            is_false_positive=False,
+            damping_contrast_db=damping_contrast_db,
+            ais_coverage_flag="temporal_spatial_gap"
+        )
+
+    if not vessels:
+        return SceneDiagnosticStatus(
+            status=FalseDetectionStatus.VALIDATED_OIL,
+            diagnostic_note="SAR anomaly detected with adequate contrast. No correlated AIS vessels in corridor (unmonitored, non-transmitting, or non-cooperative source).",
+            is_false_positive=False,
+            damping_contrast_db=damping_contrast_db,
+            ais_coverage_flag="zero_candidates"
+        )
+
+    return SceneDiagnosticStatus(
+        status=FalseDetectionStatus.VALIDATED_OIL,
+        diagnostic_note=f"SAR oil detection correlated with {len(vessels)} candidate vessels in corridor.",
+        is_false_positive=False,
+        damping_contrast_db=damping_contrast_db,
+        ais_coverage_flag="candidates_present"
+    )
 
 
 class FalseDetectionEvent:
@@ -386,7 +470,11 @@ def analyze_event_correlation(
             "trajectory_evidence": "no_vessels_in_window",
             "ais_source_agreement": "no_data_both_sources" if not filt_ds1 and not filt_ds2 else "no_vessels_within_radius",
             "correlation_status": STATUS_NO_MATCHING_VESSEL,
-            "notes": "No sufficient AIS evidence was available for this event within configured search window."
+            "notes": (
+                "No sufficient AIS evidence was available for this event within configured search window. "
+                "AIS data absence reflects a temporal/geographic coverage gap or non-transmitting traffic; "
+                "it does NOT constitute proof that the SAR detection is false."
+            )
         }
         return candidate_rows, summary
 

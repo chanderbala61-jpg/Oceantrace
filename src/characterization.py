@@ -82,6 +82,7 @@ class SpillCharacterizer:
         bbox: Optional[Tuple[float, float, float, float]] = None,
         origin_lat_hint: Optional[float] = None,
         origin_lon_hint: Optional[float] = None,
+        crs: Optional[Any] = None,
     ) -> Optional[SpillEvent]:
         """
         Characterizes a 2D binary segmentation mask into a structured SpillEvent.
@@ -94,6 +95,7 @@ class SpillCharacterizer:
             bbox: Optional bounding box (min_lat, min_lon, max_lat, max_lon) in WGS-84.
             origin_lat_hint: Fallback center latitude if transform/bbox not available.
             origin_lon_hint: Fallback center longitude if transform/bbox not available.
+            crs: Optional raster coordinate reference system (e.g. rasterio CRS or EPSG code).
 
         Returns:
             SpillEvent object if at least one slick is detected, else None.
@@ -156,6 +158,7 @@ class SpillCharacterizer:
             bbox=bbox,
             origin_lat_hint=origin_lat_hint,
             origin_lon_hint=origin_lon_hint,
+            crs=crs,
         )
 
         # 4. Simplify boundary polygon (using approxPolyDP)
@@ -176,6 +179,7 @@ class SpillCharacterizer:
                 bbox=bbox,
                 origin_lat_hint=origin_lat_hint,
                 origin_lon_hint=origin_lon_hint,
+                crs=crs,
             )
             polygon_lat_lon.append((round(p_lat, 6), round(p_lon, 6)))
 
@@ -204,6 +208,7 @@ class SpillCharacterizer:
         bbox: Optional[Tuple[float, float, float, float]] = None,
         origin_lat_hint: Optional[float] = None,
         origin_lon_hint: Optional[float] = None,
+        crs: Optional[Any] = None,
     ) -> Tuple[float, float]:
         """
         Converts pixel coordinate (col, row) to geographic (lat, lon) WGS-84.
@@ -214,13 +219,25 @@ class SpillCharacterizer:
                 # If it has a transform multiplication or attributes
                 if hasattr(transform, "c") and hasattr(transform, "f"):
                     # Affine(a, b, c, d, e, f)
-                    lon = transform.c + col * transform.a + row * transform.b
-                    lat = transform.f + col * transform.d + row * transform.e
-                    return float(lat), float(lon)
+                    raw_x = transform.c + col * transform.a + row * transform.b
+                    raw_y = transform.f + col * transform.d + row * transform.e
                 elif hasattr(transform, "__getitem__"):
-                    lon = transform[2] + col * transform[0] + row * transform[1]
-                    lat = transform[5] + col * transform[3] + row * transform[4]
-                    return float(lat), float(lon)
+                    raw_x = transform[2] + col * transform[0] + row * transform[1]
+                    raw_y = transform[5] + col * transform[3] + row * transform[4]
+                else:
+                    raw_x, raw_y = None, None
+
+                if raw_x is not None and raw_y is not None:
+                    # Check if CRS is projected and requires transformation to WGS-84 (EPSG:4326)
+                    if crs is not None and str(crs).upper() not in ("EPSG:4326", "WGS84", "OGC:CRS84", "NONE", ""):
+                        try:
+                            from rasterio.warp import transform as warp_transform
+                            lons, lats = warp_transform(crs, "EPSG:4326", [raw_x], [raw_y])
+                            return float(lats[0]), float(lons[0])
+                        except Exception:
+                            pass
+                    # For EPSG:4326, x is Longitude, y is Latitude
+                    return float(raw_y), float(raw_x)
             except Exception:
                 pass
 
