@@ -1432,14 +1432,19 @@ elif "5. AIS Investigation" in nav_selection:
             st.info("No vessels tracked within the specified spatiotemporal corridor.")
         else:
             for cand in cand_list:
-                m_feat = cand.measurements
+                m_feat = getattr(cand, "measurements", {}) or {}
                 v_name = m_feat.get("ship_name", f"MMSI {cand.mmsi}")
                 with st.expander(f"Rank #{cand.rank}: {v_name} (MMSI: {cand.mmsi}) — Score: {cand.overall_score:.2f} [{cand.classification}]"):
                     c1, c2, c3, c4 = st.columns(4)
                     c1.metric("Closest Approach (CPA)", f"{m_feat.get('min_distance_km', 0.0):.2f} km")
                     c2.metric("Time Offset at CPA", f"{m_feat.get('time_offset_hours', 0.0):+.2f} hours")
                     c3.metric("Average SOG", f"{m_feat.get('avg_sog', 0.0):.1f} kts")
-                    c4.metric("Heading Compatibility", f"{cand.scoring_breakdown.get('trajectory_score', 0.0):.2f}")
+
+                    sb = getattr(cand, "scoring_breakdown", None) or getattr(cand, "evidence_scores", None) or {}
+                    if not isinstance(sb, dict):
+                        sb = {}
+                    traj_val = float(sb.get("trajectory_score", sb.get("trajectory_overlap", 0.0)))
+                    c4.metric("Heading Compatibility", f"{traj_val:.2f}")
 
                     st.markdown("**Evidence Rationale:**")
                     st.write(f"- Association Status: `{cand.classification}`")
@@ -1469,14 +1474,21 @@ elif "6. Evidence Summary" in nav_selection:
         st.info("No candidate vessel associations available for evidence breakdown.")
     else:
         for cand in investigation_record.candidate_vessels:
-            sb = cand.scoring_breakdown
+            sb = getattr(cand, "scoring_breakdown", None) or getattr(cand, "evidence_scores", None) or {}
+            if not isinstance(sb, dict):
+                sb = {}
+            spat_score = float(sb.get("spatial_score", sb.get("spatial_proximity", 0.0)))
+            temp_score = float(sb.get("temporal_score", sb.get("temporal_alignment", 0.0)))
+            traj_score = float(sb.get("trajectory_score", sb.get("trajectory_overlap", 0.0)))
+            kin_score = float(sb.get("kinematic_score", sb.get("kinematic_consistency", 0.0)))
+
             st.markdown(f"#### Candidate #{cand.rank}: MMSI {cand.mmsi} ({cand.classification})")
 
             score_df = pd.DataFrame([
-                {"Component": "Spatial Proximity", "Weight": "35%", "Score": f"{sb.get('spatial_score', 0.0):.3f}", "Weighted Contribution": f"{sb.get('spatial_score', 0.0) * 0.35:.3f}"},
-                {"Component": "Temporal Alignment", "Weight": "30%", "Score": f"{sb.get('temporal_score', 0.0):.3f}", "Weighted Contribution": f"{sb.get('temporal_score', 0.0) * 0.30:.3f}"},
-                {"Component": "Trajectory Match", "Weight": "20%", "Score": f"{sb.get('trajectory_score', 0.0):.3f}", "Weighted Contribution": f"{sb.get('trajectory_score', 0.0) * 0.20:.3f}"},
-                {"Component": "Kinematics / SOG", "Weight": "15%", "Score": f"{sb.get('kinematic_score', 0.0):.3f}", "Weighted Contribution": f"{sb.get('kinematic_score', 0.0) * 0.15:.3f}"},
+                {"Component": "Spatial Proximity", "Weight": "35%", "Score": f"{spat_score:.3f}", "Weighted Contribution": f"{spat_score * 0.35:.3f}"},
+                {"Component": "Temporal Alignment", "Weight": "30%", "Score": f"{temp_score:.3f}", "Weighted Contribution": f"{temp_score * 0.30:.3f}"},
+                {"Component": "Trajectory Match", "Weight": "20%", "Score": f"{traj_score:.3f}", "Weighted Contribution": f"{traj_score * 0.20:.3f}"},
+                {"Component": "Kinematics / SOG", "Weight": "15%", "Score": f"{kin_score:.3f}", "Weighted Contribution": f"{kin_score * 0.15:.3f}"},
             ])
             st.table(score_df)
             st.markdown(f"**Total Composite Association Score:** `{cand.overall_score:.3f}`")

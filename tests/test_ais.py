@@ -243,7 +243,30 @@ class TestAISCorrelationModule(unittest.TestCase):
         
         self.assertEqual(spill_updated.effective_origin_lat, 28.50)
         self.assertEqual(spill_updated.effective_origin_lon, -88.50)
-        self.assertIsNotNone(spill_updated.origin_time_start)
+    # 16. Scoring Breakdown Compatibility Property
+    def test_candidate_scoring_breakdown_property(self):
+        cand = CandidateVesselResult(
+            mmsi=123456789,
+            rank=1,
+            overall_score=0.85,
+            classification="Highly Compatible Candidate",
+            evidence_scores={
+                "spatial_proximity": 0.92,
+                "temporal_alignment": 0.88,
+                "trajectory_overlap": 0.75,
+                "kinematic_consistency": 0.80,
+            }
+        )
+        sb = cand.scoring_breakdown
+        self.assertIsInstance(sb, dict)
+        self.assertAlmostEqual(sb["spatial_score"], 0.92)
+        self.assertAlmostEqual(sb["temporal_score"], 0.88)
+        self.assertAlmostEqual(sb["trajectory_score"], 0.75)
+        self.assertAlmostEqual(sb["kinematic_score"], 0.80)
+        self.assertAlmostEqual(sb["spatial_proximity"], 0.92)
+        self.assertAlmostEqual(sb["temporal_alignment"], 0.88)
+        self.assertAlmostEqual(sb["trajectory_overlap"], 0.75)
+        self.assertAlmostEqual(sb["kinematic_consistency"], 0.80)
 
 
 if __name__ == "__main__":

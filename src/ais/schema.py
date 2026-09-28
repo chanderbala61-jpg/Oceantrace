@@ -101,3 +101,22 @@ class CandidateVesselResult:
     
     # Audit trail documenting why candidate passed or failed various filters
     audit_trail: Dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def scoring_breakdown(self) -> Dict[str, float]:
+        """Provides mapped dictionary of individual component scores for UI display."""
+        ev = self.evidence_scores if isinstance(self.evidence_scores, dict) else {}
+        spat = float(ev.get("spatial_score", ev.get("spatial_proximity", 0.0)))
+        temp = float(ev.get("temporal_score", ev.get("temporal_alignment", 0.0)))
+        traj = float(ev.get("trajectory_score", ev.get("trajectory_overlap", 0.0)))
+        kin = float(ev.get("kinematic_score", ev.get("kinematic_consistency", 0.0)))
+        return {
+            "spatial_score": spat,
+            "temporal_score": temp,
+            "trajectory_score": traj,
+            "kinematic_score": kin,
+            "spatial_proximity": spat,
+            "temporal_alignment": temp,
+            "trajectory_overlap": traj,
+            "kinematic_consistency": kin,
+        }
