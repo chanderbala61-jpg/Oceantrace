@@ -72,50 +72,28 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-if "theme" not in st.session_state:
-    st.session_state["theme"] = "night"
+is_night = True
+st.session_state["theme"] = "night"
 
-is_night = st.session_state["theme"] == "night"
-
-# Theme Colors
-if is_night:
-    BG_COLOR = "#070d1e"
-    PAGE_BG = "#0b132b"
-    CARD_BG = "#131f38"
-    CARD_BORDER = "#1e293b"
-    TEXT_PRIMARY = "#f1f5f9"
-    TEXT_MUTED = "#94a3b8"
-    ACCENT_CYAN = "#38bdf8"
-    BANNER_BG = "linear-gradient(90deg, #0369a1 0%, #0284c7 50%, #0ea5e9 100%)"
-    BANNER_TEXT = "#ffffff"
-    SIDEBAR_BG = "#070d1e"
-    SIDEBAR_TEXT = "#ffffff"
-    SIDEBAR_LABEL = "#f1f5f9"
-    SIDEBAR_MUTED = "#93c5fd"
-    SIDEBAR_CARD_BG = "#131f38"
-    SIDEBAR_CARD_BORDER = "#1e3a8a"
-    DISCLAIMER_BG = "#141d33"
-    DISCLAIMER_BORDER = "#38bdf8"
-    DEFAULT_BASEMAP = "CartoDB dark_matter"
-else:
-    BG_COLOR = "#f1f5f9"
-    PAGE_BG = "#f8fafc"
-    CARD_BG = "#ffffff"
-    CARD_BORDER = "#e2e8f0"
-    TEXT_PRIMARY = "#0f172a"
-    TEXT_MUTED = "#475569"
-    ACCENT_CYAN = "#0284c7"
-    BANNER_BG = "linear-gradient(90deg, #0284c7 0%, #0369a1 100%)"
-    BANNER_TEXT = "#ffffff"
-    SIDEBAR_BG = "#f8fafc"
-    SIDEBAR_TEXT = "#0f172a"
-    SIDEBAR_LABEL = "#1e293b"
-    SIDEBAR_MUTED = "#2563eb"
-    SIDEBAR_CARD_BG = "#ffffff"
-    SIDEBAR_CARD_BORDER = "#cbd5e1"
-    DISCLAIMER_BG = "#f0f9ff"
-    DISCLAIMER_BORDER = "#0284c7"
-    DEFAULT_BASEMAP = "CartoDB positron"
+# Theme Colors — Permanent Dark Operations Mode ("no need of daylight")
+BG_COLOR = "#070d1e"
+PAGE_BG = "#0b132b"
+CARD_BG = "#131f38"
+CARD_BORDER = "#1e293b"
+TEXT_PRIMARY = "#f1f5f9"
+TEXT_MUTED = "#94a3b8"
+ACCENT_CYAN = "#38bdf8"
+BANNER_BG = "linear-gradient(90deg, #0369a1 0%, #0284c7 50%, #0ea5e9 100%)"
+BANNER_TEXT = "#ffffff"
+SIDEBAR_BG = "#070d1e"
+SIDEBAR_TEXT = "#ffffff"
+SIDEBAR_LABEL = "#f1f5f9"
+SIDEBAR_MUTED = "#93c5fd"
+SIDEBAR_CARD_BG = "#131f38"
+SIDEBAR_CARD_BORDER = "#1e3a8a"
+DISCLAIMER_BG = "#141d33"
+DISCLAIMER_BORDER = "#38bdf8"
+DEFAULT_BASEMAP = "Dark Ocean Base (Primary)"
 
 THEME_CSS = f"""
 <style>
@@ -124,6 +102,14 @@ THEME_CSS = f"""
         background-color: {PAGE_BG};
         color: {TEXT_PRIMARY};
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }}
+
+    /* Dark Map Canvas & Leaflet container */
+    .leaflet-container,
+    .leaflet-tile-pane,
+    .folium-map {{
+        background-color: #070d1e !important;
+        background: #070d1e !important;
     }}
     
     /* High-Contrast Professional Sidebar */
@@ -755,35 +741,27 @@ def render_hero_folium_map(
         all_lons += [sar_overlay["bounds"][0][1], sar_overlay["bounds"][1][1]]
 
     # -----------------------------------------------------------------------
-    # Layer 1B: Reference basemaps (optional — off by default when SAR loaded)
+    # Layer 1B: Dark Ocean Basemap (100% dark canvas, no daylight, no watermark)
     # -----------------------------------------------------------------------
-    sar_available = sar_overlay is not None
-    # OpenStreetMap — useful geographic reference, shown only when no SAR
+    show_satellite = "Satellite" in basemap_choice
+    show_dark_base = not show_satellite
+
+    # Dark Ocean Base: Esri World Dark Gray Base (Dark Slate/Navy ocean, no daylight, no watermark, free)
     folium.TileLayer(
-        tiles="OpenStreetMap",
-        name="Geographic Reference (OpenStreetMap)",
+        tiles="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+        attr="&copy; Esri &mdash; Esri, DeLorme, NAVTEQ",
+        name="Dark Ocean Base (Primary)",
         control=True,
-        show=not sar_available
+        show=show_dark_base
     ).add_to(m)
 
-    # Esri World Imagery — real satellite, no API key required
+    # Esri World Imagery (Satellite) — dark oceanic imagery reference
     folium.TileLayer(
         tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-        attr="\u00a9 Esri, Maxar, Earthstar Geographics",
+        attr="&copy; Esri, Maxar, Earthstar Geographics",
         name="Esri World Satellite (Reference)",
         control=True,
-        show=False
-    ).add_to(m)
-
-    # -----------------------------------------------------------------------
-    # Layer 1C: Black ocean base (always shown behind SAR/tiles for dark look)
-    # -----------------------------------------------------------------------
-    folium.TileLayer(
-        tiles="CartoDB dark_matter",
-        name="Dark Ocean Base",
-        control=True,
-        show=not sar_available,
-        overlay=False
+        show=show_satellite
     ).add_to(m)
 
     # 2. Spill Boundary Polygon (if available)
@@ -1022,11 +1000,13 @@ with header_col1:
     )
 
 with header_col2:
-    btn_label = f"Switch to {'Day' if is_night else 'Night'} Mode"
-    btn_icon = 'sun' if is_night else 'moon'
-    if st.button(f"{'☀️ Day Mode' if is_night else '🌙 Night Mode'}", use_container_width=True):
-        st.session_state["theme"] = "day" if is_night else "night"
-        st.rerun()
+    st.markdown(
+        '<div style="text-align:right; padding-top:6px;">'
+        '<span style="background:#131f38; border:1px solid #1e3a8a; border-radius:20px; padding:6px 14px; font-size:0.82rem; color:#38bdf8; font-weight:600; display:inline-block;">'
+        '🌙 Dark Tactical Mode (Active)'
+        '</span></div>',
+        unsafe_allow_html=True
+    )
 
 
 # ==============================================================================
@@ -1139,7 +1119,7 @@ if "1. Dashboard" in nav_selection:
         with map_ctrl2:
             basemap_select = st.selectbox(
                 "Reference Basemap",
-                options=["Esri Satellite", "OpenStreetMap", "Dark Base Only"],
+                options=["Dark Ocean Base (Primary)", "Esri World Satellite"],
                 index=0,
                 label_visibility="collapsed",
                 help="SAR scene is the primary layer. Reference basemap loads under it."
@@ -1651,12 +1631,16 @@ elif "9. Counterfactual Vessel Test" in nav_selection:
         t1.metric("MMSI", str(rel.mmsi))
         t2.metric("Release Lat", f"{rel.release_lat:.4f}°N")
         t3.metric("Release Lon", f"{abs(rel.release_lon):.4f}°{'W' if rel.release_lon < 0 else 'E'}")
-        t4.metric("CPA Distance", f"{rel.cpa_distance_km:.2f} km")
+        cpa_str = f"{rel.cpa_distance_km:.2f} km" if rel.cpa_distance_km is not None else "N/A"
+        t4.metric("CPA Distance", cpa_str)
         s1, s2, s3, s4 = st.columns(4)
-        s1.metric("SOG", f"{rel.sog_knots:.1f} kts")
-        s2.metric("COG", f"{rel.cog_deg:.0f}°")
+        sog_str = f"{rel.sog_knots:.1f} kts" if rel.sog_knots is not None else "N/A"
+        s1.metric("SOG", sog_str)
+        cog_str = f"{rel.cog_deg:.0f}°" if rel.cog_deg is not None else "N/A"
+        s2.metric("COG", cog_str)
         s3.metric("Prior AIS Score", f"{rel.prior_ais_score:.3f}")
-        s4.metric("Windage", f"{cf_r.config.windage_factor*100:.1f}%")
+        windage_val = getattr(cf_r.config, "windage_factor", 0.030) * 100
+        s4.metric("Windage", f"{windage_val:.1f}%")
 
         st.markdown("---")
         if dr:
